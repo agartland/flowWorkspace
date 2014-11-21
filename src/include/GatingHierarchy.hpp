@@ -31,11 +31,7 @@ typedef unsigned int NODEID;
 using namespace std;
 typedef map<string,VertexID> VertexID_map;
 typedef vector<VertexID> VertexID_vec;
-typedef vector<string> StringVec;
-typedef vector<double> DoubleVec;
-typedef vector<bool> BoolVec;
 typedef vector<NODEID> NODEID_vec;
-
 
 //struct OurVertexPropertyWriter {
 //
@@ -219,8 +215,8 @@ public:
 	void transforming();
 	void gating(VertexID,bool recompute=false);
 	void calgate(VertexID);
-	vector<bool> boolGating(VertexID);
-	vector<bool> boolGating(vector<BOOL_GATE_OP> boolOpSpec);
+	vector<bool> boolGating(VertexID, VertexID parentID);
+	vector<bool> boolGating(vector<BOOL_GATE_OP> boolOpSpec, VertexID parentID);
 	void extendGate(float);
 	void extendGate(float,float);
 
@@ -240,7 +236,7 @@ public:
 	VertexID_vec getDescendants(VertexID u,string name);
 	VertexID_vec getChildren(VertexID);
 	nodeProperties & getNodeProperty(VertexID);
-
+	BoolVec getIndices(VertexID u,  VertexID refNodeID = 0);
 	GatingHierarchy * clone(const trans_map & _trans,trans_global_vec * _gTrans);
 	GatingHierarchy * clone();
 	void addTransMap(trans_map tm);

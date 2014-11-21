@@ -449,7 +449,7 @@ void ellipseGate::computeCov(){
 /*
  * translated from flowCore::%in% method for ellipsoidGate
  */
-vector<bool> ellipseGate::gating(flowData & fdata){
+vector<bool> ellipseGate::gating(flowData & fdata, BoolVec parentInd){
 
 
 	// get data
@@ -481,12 +481,16 @@ vector<bool> ellipseGate::gating(flowData & fdata){
 	dd = a/det;
 
 	// if inside of the ellipse
-	unsigned nEvents=xdata.size();
+
+	unsigned nTotalEvents=xdata.size();
+	unsigned nEvents = count(parentInd.begin(),parentInd.end(),true);
 	vector<bool> res (nEvents);
-	for(unsigned i =0;i<nEvents;i++){
-		double x = xdata[i];
-		double y = ydata[i];
-		res[i] = (x * x * aa + x* y * cc + x* y * bb + y * y * dd) <= pow(dist, 2);
+	for(unsigned i =0, j = 0;i<nTotalEvents;i++){
+		if(parentInd.at(i)){
+			double x = xdata[i];
+			double y = ydata[i];
+			res[j++] = (x * x * aa + x* y * cc + x* y * bb + y * y * dd) <= pow(dist, 2);
+		}
 	}
 
 	return res;
@@ -597,7 +601,7 @@ void rangeGate::gain(map<string,float> & gains){
  *  indices are allocated within gating function, so it is up to caller to free it
  *  and now it is freed in destructor of its owner "nodeProperties" object
  */
-vector<bool> polygonGate::gating(flowData & fdata){
+vector<bool> polygonGate::gating(flowData & fdata, BoolVec parentInd){
 
 
 
@@ -610,7 +614,8 @@ vector<bool> polygonGate::gating(flowData & fdata){
 	valarray<double> xdata(fdata.subset(x));
 	valarray<double> ydata(fdata.subset(y));
 
-	unsigned nEvents=xdata.size();
+	unsigned nTotalEvents=xdata.size();
+	unsigned nEvents = count(parentInd.begin(),parentInd.end(),true);
 	//init the indices
 	vector<bool> ind(nEvents);
 
@@ -619,45 +624,48 @@ vector<bool> polygonGate::gating(flowData & fdata){
 	double xinters;
 	double p1x, p2x, p1y, p2y;
 
-	for(unsigned i=0; i<nEvents; i++)
-	{//iterate over points
-	p1x=vertices.at(0).x;
-	p1y=vertices.at(0).y;
-	counter=0;
-	for(unsigned j=1; j <= nVertex; j++)
-	{// iterate over vertices
-	  /*p1x,p1y and p2x,p2y are the endpoints of the current vertex*/
-	  if (j == nVertex)
-	  {//the last vertice must "loop around"
-		p2x = vertices.at(0).x;
-		p2y = vertices.at(0).y;
-	  }
-	  else
-	  {
-		p2x = vertices.at(j).x;
-		p2y = vertices.at(j).y;
-	  }
-	  /*if horizontal ray is in range of vertex find the x coordinate where
-		ray and vertex intersect*/
-	  if(ydata[i] >= min(p1y, p2y) && ydata[i] < max(p1y, p2y) &&xdata[i] <= max(p1x, p2x))
-	  {
-		  xinters = (ydata[i]-p1y)*(p2x-p1x)/(p2y-p1y)+p1x;
-		/*if intersection x coordinate == point x coordinate it lies on the
-		  boundary of the polygon, which means "in"*/
-		if(xinters==xdata[i])
-		{
-		  counter=1;
-		  break;
-		}
-		/*count how many vertices are passed by the ray*/
-		if (xinters > xdata[i])counter++;
-	  }
-	  p1x=p2x;
-	  p1y=p2y;
-	}
-	/*uneven number of vertices passed means "in"*/
+	for(unsigned i=0, c = 0; i<nTotalEvents; i++)
+	{
+		if(parentInd.at(i)){
+			//iterate over points
+			p1x=vertices.at(0).x;
+			p1y=vertices.at(0).y;
+			counter=0;
+			for(unsigned j=1; j <= nVertex; j++)
+			{// iterate over vertices
+			  /*p1x,p1y and p2x,p2y are the endpoints of the current vertex*/
+			  if (j == nVertex)
+			  {//the last vertice must "loop around"
+				p2x = vertices.at(0).x;
+				p2y = vertices.at(0).y;
+			  }
+			  else
+			  {
+				p2x = vertices.at(j).x;
+				p2y = vertices.at(j).y;
+			  }
+			  /*if horizontal ray is in range of vertex find the x coordinate where
+				ray and vertex intersect*/
+			  if(ydata[i] >= min(p1y, p2y) && ydata[i] < max(p1y, p2y) &&xdata[i] <= max(p1x, p2x))
+			  {
+				  xinters = (ydata[i]-p1y)*(p2x-p1x)/(p2y-p1y)+p1x;
+				/*if intersection x coordinate == point x coordinate it lies on the
+				  boundary of the polygon, which means "in"*/
+				if(xinters==xdata[i])
+				{
+				  counter=1;
+				  break;
+				}
+				/*count how many vertices are passed by the ray*/
+				if (xinters > xdata[i])counter++;
+			  }
+			  p1x=p2x;
+			  p1y=p2y;
+			}
+			/*uneven number of vertices passed means "in"*/
 
-	ind[i]=((counter % 2) != 0);
+			ind[c++]=((counter % 2) != 0);
+		}
 
 	}
 	if(isNegate())
@@ -855,21 +863,30 @@ void rangeGate::transforming(trans_local & trans){
 	}
 
 }
-
-vector<bool> rangeGate::gating(flowData & fdata){
+/**
+ *
+ * @param fdata
+ * @param parentInd the absolute indices of parent node
+ * @return
+ */
+vector<bool> rangeGate::gating(flowData & fdata, BoolVec parentInd){
 
 	valarray<double> data_1d(fdata.subset(param.getName()));
 
-	unsigned nEvents=data_1d.size();
+	unsigned nTotalEvents=data_1d.size();
+	unsigned nEvents = count(parentInd.begin(),parentInd.end(),true);
 	//init the indices
 	vector<bool> ind(nEvents);
 
 	/*
 	 * actual gating
 	 */
-	for(unsigned i=0;i<nEvents;i++)
+	for(unsigned i=0,j = 0;i < nTotalEvents;i++)
 	{
-		ind[i]=data_1d[i]<=param.getMax()&&data_1d[i]>=param.getMin();
+		if(parentInd.at(i)){
+			ind[j++] = data_1d[i]<=param.getMax()&&data_1d[i]>=param.getMin();
+		}
+
 	}
 
 
@@ -880,7 +897,7 @@ vector<bool> rangeGate::gating(flowData & fdata){
 
 }
 
-vector<bool> rectGate::gating(flowData & fdata){
+vector<bool> rectGate::gating(flowData & fdata, BoolVec parentInd){
 
 	vector<coordinate> vertices=param.getVertices();
 	unsigned nVertex=vertices.size();
@@ -891,28 +908,31 @@ vector<bool> rectGate::gating(flowData & fdata){
 	valarray<double> xdata(fdata.subset(x));
 	valarray<double> ydata(fdata.subset(y));
 
-	unsigned nEvents=xdata.size();
+	unsigned nTotalEvents=xdata.size();
+	unsigned nEvents = count(parentInd.begin(),parentInd.end(),true);
 	//init the indices
 	vector<bool> ind(nEvents);
 
 	/*
 	 * actual gating
 	 */
-	for(unsigned i=0;i<nEvents;i++)
+	for(unsigned i=0, j =0;i<nTotalEvents;i++)
 	{
-		bool inX,inY;
-		double xMin=vertices.at(0).x;
-		double yMin=vertices.at(0).y;
+		if(parentInd.at(i)){
+			bool inX,inY;
+			double xMin=vertices.at(0).x;
+			double yMin=vertices.at(0).y;
 
-		double xMax=vertices.at(1).x;
-		double yMax=vertices.at(1).y;
+			double xMax=vertices.at(1).x;
+			double yMax=vertices.at(1).y;
 
-		if(xMin>xMax||yMin>yMax)
-			throw(domain_error("invalid vertices for rectgate!"));
+			if(xMin>xMax||yMin>yMax)
+				throw(domain_error("invalid vertices for rectgate!"));
 
-		inX=xdata[i]<=xMax&&xdata[i]>=xMin;
-		inY=ydata[i]<=yMax&&ydata[i]>=yMin;
-		ind[i]=inX&&inY;
+			inX=xdata[i]<=xMax&&xdata[i]>=xMin;
+			inY=ydata[i]<=yMax&&ydata[i]>=yMin;
+			ind[j++]=inX&&inY;
+		}
 	}
 
 

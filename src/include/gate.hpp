@@ -16,6 +16,9 @@
 //#include <boost/geometry.hpp>
 //#include <boost/geometry/geometries/point_xy.hpp>
 //#include <boost/geometry/geometries/polygon.hpp>
+typedef vector<string> StringVec;
+typedef vector<double> DoubleVec;
+typedef vector<bool> BoolVec;
 
 
 using namespace std;
@@ -249,7 +252,7 @@ public:
 	virtual ~gate(){};
 	virtual unsigned short getType()=0;
 	virtual vector<BOOL_GATE_OP> getBoolSpec(){throw(domain_error("undefined getBoolSpec function!"));};
-	virtual vector<bool> gating(flowData &){throw(domain_error("undefined gating function!"));};
+	virtual vector<bool> gating(flowData &, BoolVec parentInd){throw(domain_error("undefined gating function!"));};
 	virtual void extend(flowData &,float){throw(domain_error("undefined extend function!"));};
 	virtual void extend(float,float){throw(domain_error("undefined extend function!"));};
 	virtual void gain(map<string,float> &){throw(domain_error("undefined gain function!"));};
@@ -281,7 +284,7 @@ private:
 public:
 	rangeGate();
 	unsigned short getType(){return RANGEGATE;}
-	vector<bool> gating(flowData &);
+	vector<bool> gating(flowData &, BoolVec parentInd);
 	void extend(flowData &,float);
 	void extend(float,float);
 	void gain(map<string,float> &);
@@ -317,7 +320,7 @@ public:
 	virtual void extend(flowData &,float);
 	void extend(float,float);
 	virtual void gain(map<string,float> &);
-	virtual vector<bool> gating(flowData &);
+	virtual vector<bool> gating(flowData &, BoolVec parentInd);
 	virtual void transforming(trans_local &);
 	virtual vertices_valarray getVertices(){return param.toValarray();};
 	void setParam(paramPoly _param){param=_param;};
@@ -343,7 +346,7 @@ private:
 
 			}
 public:
-	vector<bool> gating(flowData &);
+	vector<bool> gating(flowData &, BoolVec parentInd);
 	unsigned short getType(){return RECTGATE;}
 	rectGate * clone(){return new rectGate(*this);};
 	void convertToPb(pb::gate & gate_pb);
@@ -395,7 +398,7 @@ public:
 	ellipseGate(){dist = 1;};
 	ellipseGate(coordinate _mu, vector<coordinate> _cov, double _dist);
 	ellipseGate(vector<coordinate> _antipodal);
-	vector<bool> gating(flowData &);
+	vector<bool> gating(flowData &, BoolVec parentInd);
 	vector<coordinate> getCovarianceMat(){return cov;};
 	coordinate getMu(){return mu;};
 	double getDist(){return dist;};

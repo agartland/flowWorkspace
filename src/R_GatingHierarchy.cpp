@@ -486,12 +486,8 @@ BEGIN_RCPP
 	GatingHierarchy* gh=gs->getGatingHierarchy(sampleName);
 	string gatePath=as<string>(_gatePath);
 	NODEID u = gh->getNodeID(gatePath);
-	if(u<0)throw(domain_error("not valid vertexID!"));
-	nodeProperties & node = gh->getNodeProperty(u);
-	//gate for this particular node in case it is not gated(e.g. indices of bool gate is not archived, thus needs the lazy-gating)
-	if(u>0&&!node.isGated())
-		gh->calgate(u);
-	return wrap(node.getIndices());
+
+	return wrap(gh->getIndices(u));
 
 END_RCPP
 }
@@ -774,10 +770,11 @@ BEGIN_RCPP
 		//parse boolean expression from R data structure into c++
 		vector<BOOL_GATE_OP> boolOp = boolFilter_R_to_C(filter);
 		//perform bool gating
-		vector<bool> curIndices= gh->boolGating(boolOp);
-		//combine with parent indices
-		nodeProperties & parentNode=gh->getNodeProperty(gh->getParent(nodeID));
-		transform (curIndices.begin(), curIndices.end(), parentNode.getIndices().begin(), curIndices.begin(),logical_and<bool>());
+		BoolVec parentInd = gh->getIndices(gh->getParent(nodeID));
+		BoolVec curIndices= gh->boolGating(boolOp, parentInd);
+
+
+
 		//save the indices
 		node.setIndices(curIndices);
 		node.computeStats();
@@ -881,7 +878,7 @@ BEGIN_RCPP
 	vector<BoolVec> indexList(nNodes);
 	for(unsigned i =0; i < nNodes; i++){
 		VertexID u = nodeIDs.at(i);
-		indexList.at(i)=gh->getNodeProperty(u).getIndices();
+		indexList.at(i)=gh->getIndices(u);
 	}
 
 

@@ -557,7 +557,7 @@ void GatingHierarchy::calgate(VertexID u)
 		calgate(pid);
 	}
 
-
+	;
 
 	if(g_loglevel>=POPULATION_LEVEL)
 		COUT <<"gating on:"<<node.getName()<<endl;
@@ -574,17 +574,17 @@ void GatingHierarchy::calgate(VertexID u)
 	switch(g->getType())
 	{
 	case BOOLGATE:
-		curIndices=boolGating(u);
+		curIndices=boolGating(u,  pid);
 		break;
 	case LOGICALGATE://skip any gating operation since the indice is already set once the gate is added
 		node.computeStats();
 		return;
 	default:
-		curIndices=g->gating(fdata);
+		BoolVec pInd = getIndices(pid);
+		curIndices=g->gating(fdata,  pInd);
 	}
 
-	//combine with parent indices
-	transform (curIndices.begin(), curIndices.end(), parentNode.getIndices().begin(), curIndices.begin(),logical_and<bool>());
+
 	node.setIndices(curIndices);
 	node.computeStats();
 }
@@ -596,7 +596,7 @@ void GatingHierarchy::calgate(VertexID u)
  * @return
  */
 
-vector<bool> GatingHierarchy::boolGating(VertexID u){
+vector<bool> GatingHierarchy::boolGating(VertexID u, VertexID parentID){
 
 	nodeProperties & node=getNodeProperty(u);
 	gate * g=node.getGate();
@@ -608,10 +608,18 @@ vector<bool> GatingHierarchy::boolGating(VertexID u){
 	/*it is kinda of expensive to init a long bool vector
 	 *
 	 */
+
+	/*
+	 * find common ancestor node among reference node and parent nodes
+	 * to shorten the process of converting to indices to common base
+	 */
+	VertexID commonAncestorID;
+
 	vector<bool> ind;
 	/*
 	 * combine the indices of reference populations
 	 */
+
 
 	vector<BOOL_GATE_OP> boolOpSpec=g->getBoolSpec();
 	for(vector<BOOL_GATE_OP>::iterator it=boolOpSpec.begin();it!=boolOpSpec.end();it++)
@@ -650,7 +658,7 @@ vector<bool> GatingHierarchy::boolGating(VertexID u){
 			calgate(nodeID);
 		}
 
-		vector<bool> curPopInd=curPop.getIndices();
+		vector<bool> curPopInd=getIndices(nodeID, commonAncestorID);
 		if(it->isNot)
 			curPopInd.flip();
 
@@ -680,8 +688,16 @@ vector<bool> GatingHierarchy::boolGating(VertexID u){
 	if(g->isNegate())
 		ind.flip();
 
-	return ind;
-
+	// make it relative to parent
+	BoolVec parentInd = getIndices(parentID, commonAncestorID)
+	unsigned nSize = count(parentInd.begin(),parentInd.end(),true);
+	BoolVec res(nSize);
+	for(unsigned i = 0, j = 0; i < ind.size(); i++)
+	{
+		if(parentInd.at(i))
+			res.at(j++) = ind.at(i);
+	}
+	return res;
 }
 /**
  * external boolOpSpec can be provided .
@@ -692,7 +708,7 @@ vector<bool> GatingHierarchy::boolGating(VertexID u){
  * @param boolOpSpec
  * @return
  */
-vector<bool> GatingHierarchy::boolGating(vector<BOOL_GATE_OP> boolOpSpec){
+vector<bool> GatingHierarchy::boolGating(vector<BOOL_GATE_OP> boolOpSpec, VertexID parentID){
 
 	vector<bool> ind;
 	/*
@@ -723,7 +739,7 @@ vector<bool> GatingHierarchy::boolGating(vector<BOOL_GATE_OP> boolOpSpec){
 			calgate(nodeID);
 		}
 
-		vector<bool> curPopInd=curPop.getIndices();
+		vector<bool> curPopInd=getIndices(nodeID);
 		if(it->isNot)
 			curPopInd.flip();
 
@@ -750,7 +766,15 @@ vector<bool> GatingHierarchy::boolGating(vector<BOOL_GATE_OP> boolOpSpec){
 
 	}
 
-	return ind;
+	// make it relative to parent
+	unsigned nSize = count(parentInd.begin(),parentInd.end(),true);
+	BoolVec res(nSize);
+	for(unsigned i = 0, j = 0; i < ind.size(); i++)
+	{
+		if(parentInd.at(i))
+			res.at(j++) = ind.at(i);
+	}
+	return res;
 
 }
 
@@ -1240,7 +1264,45 @@ nodeProperties & GatingHierarchy::getNodeProperty(VertexID u){
 
 	}
 }
+/**
+ *
+ * @param u
+ * @param refNodeID the node that the indices of u is relative to
+ *   				It determines the levels of tracing back.sometime it is not necessary to trace all the way back to root
+ * @return
+ */
+BoolVec GatingHierarchy::getIndices(VertexID u, VertexID refNodeID){
+	if(u<0)throw(domain_error("not valid vertexID!"));
+	nodeProperties & node = getNodeProperty(u);
 
+	//gate for this particular node in case it is not gated(e.g. indices of bool gate is not archived, thus needs the lazy-gating)
+	if(u>0&&!node.isGated())
+		calgate(u);
+
+	BoolVec ind = node.getIndices();
+
+	//keep merging with parent Ind
+	//until reaching to refNodeID
+	while(u != refNodeID)
+	{
+		//get parent indices
+		u = getParent(u);
+		BoolVec pInd = getIndices(u, u);
+		//merge with parent
+		for(unsigned i = 0 , j = 0; i < pInd.size(); i++)
+		{
+			if(pInd.at(i))
+			{
+				pInd.at(i) = pInd.at(i) && ind.at(j++);
+			}
+		}
+		ind = pInd;
+	}
+
+
+	return ind;
+
+}
 /*
  *TODO:to deal with trans copying (especially how to sync with gTrans)
   up to caller to free the memory
