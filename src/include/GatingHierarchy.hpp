@@ -213,10 +213,12 @@ public:
 	trans_local getLocalTrans(){return trans;}
 	void printLocalTrans();//for the debugging purpose
 	void transforming();
-	void gating(VertexID,bool recompute=false);
-	void calgate(VertexID);
-	vector<bool> boolGating(VertexID, VertexID parentID);
-	vector<bool> boolGating(vector<BOOL_GATE_OP> boolOpSpec, VertexID parentID);
+
+	void gating(VertexID,bool recompute=false, bool computeTerminalBool=true);
+	void calgate(VertexID, bool computeTerminalBool);
+	vector<bool> boolGating(VertexID, VertexID parentID, bool computeTerminalBool);
+	vector<bool> boolGating(vector<BOOL_GATE_OP> boolOpSpec, VertexID parentID,bool computeTerminalBool);
+
 	void extendGate(float);
 	void extendGate(float,float);
 
@@ -224,10 +226,15 @@ public:
 	void adjustGate(map<string,float> & gains);
 	void drawGraph(string out);
 	int getChildren(VertexID source,string childName);
+
+	VertexID getCommonAncestor(VertexID u, VertexID v,unsigned & nDepths);
+
 	VertexID getNodeID(vector<string> gatePath);
+	VertexID getRefNodeID(VertexID u,vector<string> refPath);
+	VertexID_vec queryByPath(vector<string> gatePath);
 	VertexID getNodeID(string gatePath);
 	VertexID getDescendant(VertexID u,string popName);
-	VertexID getRefNodeID(VertexID u,string popName);
+
 	VertexID_vec getVertices(unsigned short order=0);//return the node list in vertexID order or T order
 	vector<string> getPopPaths(unsigned short order,bool fullPath,bool showHidden);
 	VertexID getAncestor(VertexID u,unsigned short level);

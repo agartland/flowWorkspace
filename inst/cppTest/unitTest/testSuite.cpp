@@ -92,7 +92,6 @@ struct parseWorkspaceFixture{
 		it = arg_map.find("g_loglevel");
 		g_loglevel = it==arg_map.end()?false:boost::lexical_cast<unsigned>(it->second);
 
-
 	};
 
 
