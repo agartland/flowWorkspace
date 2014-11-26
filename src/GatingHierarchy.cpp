@@ -868,7 +868,11 @@ VertexID GatingHierarchy::getCommonAncestor(VertexID_vec nodeIDs, unsigned & nDe
 		unsigned j = 0;
 		VertexID u = paths.at(j).at(nDepths);
 		//loop through the rest nodes to see if they equal to u
-		for(j = 1; j < nSize, paths.at(j).at(nDepths) == u; j++);
+		for(j = 1; j < nSize; j++)
+		{
+			if(paths.at(j).at(nDepths) != u)
+				break;
+		}
 
 		if(j == nSize)
 			CommonAncestor = u;//update result if all are the same
