@@ -609,27 +609,120 @@ vector<bool> GatingHierarchy::boolGating(VertexID u, VertexID parentID, bool com
 	nodeProperties & node=getNodeProperty(u);
 	gate * g=node.getGate();
 
-	//init the indices
-//	unsigned nEvents=fdata.getEventsCount();
+	vector<BOOL_GATE_OP> boolOpSpec=g->getBoolSpec();
 
-//	vector<bool> ind(nEvents,true);
-	/*it is kinda of expensive to init a long bool vector
-	 *
-	 */
+	//get the reference node IDs
+	unsigned nSize = boolOpSpec.size() + 1;
+	VertexID_vec refNodeIDs(nSize);
+	refNodeIDs.at(0) = parentID;
+	for(unsigned i = 1; i < nSize; i++)
+	{
 
+		/*
+		 * assume the reference node has already added during the parsing stage
+		 */
+		vector<string> nodePath=boolOpSpec.at(i-1).path;
+		refNodeIDs.at(i) = getRefNodeID(u,nodePath);
+	}
 	/*
 	 * find common ancestor node among reference node and parent nodes
 	 * to shorten the process of converting to indices to common base
 	 */
-	VertexID commonAncestorID = 0;
+	unsigned nDepths;
+	VertexID commonAncestorID = getCommonAncestor(refNodeIDs,nDepths);
+
+	/*
+	 * get the indices of reference nodes (include parent node)
+	 */
+	vector<BoolVec> indVec(nSize);
+	for(unsigned i = 0; i < nSize; i++)
+	{
+		VertexID nodeID = refNodeIDs.at(i);
+		nodeProperties & curPop=getNodeProperty(nodeID);
+		//prevent self-referencing
+		if(nodeID == u){
+			string strErr = "The boolean gate is referencing to itself: ";
+			strErr.append(curPop.getName());
+			throw(domain_error(strErr));
+		}
+
+		if(!curPop.isGated())
+		{
+			if(g_loglevel>=POPULATION_LEVEL)
+				COUT <<"go to the ungated reference node:"<<curPop.getName()<<endl;
+			calgate(nodeID, computeTerminalBool);
+		}
+
+		indVec.at(i) = getIndices(nodeID, commonAncestorID);
+	}
+	/*
+	 * bool combine these indices
+	 */
+	vector<bool> ind;
+	for(unsigned i = 0; i < nSize; i++)
+	{
+		BoolVec curPopInd = indVec.at(i);
+		/*
+		 * for the first reference node(i.e. parent node)
+		 * assign the indices directly without logical operation
+		 */
+		if(i == 0)
+		{
+			ind = curPopInd;
+		}
+		else
+		{
+			BOOL_GATE_OP thisBoolOp = boolOpSpec.at(i-1);
+			if(thisBoolOp.isNot)
+				curPopInd.flip();
+			switch(thisBoolOp.op)
+			{
+				case '&':
+					transform (ind.begin(), ind.end(), curPopInd.begin(), ind.begin(),logical_and<bool>());
+					break;
+				case '|':
+					transform (ind.begin(), ind.end(), curPopInd.begin(), ind.begin(),logical_or<bool>());
+					break;
+				default:
+					throw(domain_error("not supported operator!"));
+			}
+
+		}
+
+	}
+
+	if(g->isNegate())
+		ind.flip();
+
+	// generate the indices relative to parent node
+	BoolVec parentInd = indVec.at(0);
+	nSize = count(parentInd.begin(),parentInd.end(),true);
+	BoolVec res(nSize);
+	for(unsigned i = 0, j = 0; i < ind.size(); i++)
+	{
+		if(parentInd.at(i))
+			res.at(j++) = ind.at(i);
+	}
+	return res;
+}
+/**
+ * external boolOpSpec can be provided .
+ * It is mainly used by openCyto rectRef gate
+ * (needs to be combined with parent indices)
+ *
+ * @param u
+ * @param boolOpSpec
+ * @return
+ */
+vector<bool> GatingHierarchy::boolGating(vector<BOOL_GATE_OP> boolOpSpec,VertexID parentID, bool computeTerminalBool){
 
 	vector<bool> ind;
+	VertexID commonAncestorID = 0;
 	/*
 	 * combine the indices of reference populations
 	 */
 
 
-	vector<BOOL_GATE_OP> boolOpSpec=g->getBoolSpec();
 	for(vector<BOOL_GATE_OP>::iterator it=boolOpSpec.begin();it!=boolOpSpec.end();it++)
 	{
 		/*
@@ -640,15 +733,11 @@ vector<bool> GatingHierarchy::boolGating(VertexID u, VertexID parentID, bool com
 		 * assume the reference node has already added during the parsing stage
 		 */
 		vector<string> nodePath=it->path;
-		nodeID=getRefNodeID(u,nodePath);
+
+		nodeID=getNodeID(nodePath);//search ID by path
+
 
 		nodeProperties & curPop=getNodeProperty(nodeID);
-		//prevent self-referencing
-		if(nodeID == u){
-			string strErr = "The boolean gate is referencing to itself: ";
-			strErr.append(curPop.getName());
-			throw(domain_error(strErr));
-		}
 
 		if(!curPop.isGated())
 		{
@@ -684,88 +773,8 @@ vector<bool> GatingHierarchy::boolGating(VertexID u, VertexID parentID, bool com
 
 	}
 
-	if(g->isNegate())
-		ind.flip();
-
 	// make it relative to parent
-	BoolVec parentInd = getIndices(parentID, commonAncestorID)
-	unsigned nSize = count(parentInd.begin(),parentInd.end(),true);
-	BoolVec res(nSize);
-	for(unsigned i = 0, j = 0; i < ind.size(); i++)
-	{
-		if(parentInd.at(i))
-			res.at(j++) = ind.at(i);
-	}
-	return res;
-}
-/**
- * external boolOpSpec can be provided .
- * It is mainly used by openCyto rectRef gate
- * (needs to be combined with parent indices)
- *
- * @param u
- * @param boolOpSpec
- * @return
- */
-vector<bool> GatingHierarchy::boolGating(vector<BOOL_GATE_OP> boolOpSpec,VertexID parentID, bool computeTerminalBool){
-
-	vector<bool> ind;
-	/*
-	 * combine the indices of reference populations
-	 */
-
-
-	for(vector<BOOL_GATE_OP>::iterator it=boolOpSpec.begin();it!=boolOpSpec.end();it++)
-	{
-		/*
-		 * find id of reference node
-		 */
-		VertexID nodeID;
-		/*
-		 * assume the reference node has already added during the parsing stage
-		 */
-		vector<string> nodePath=it->path;
-
-		nodeID=getNodeID(nodePath);//search ID by path
-
-
-		nodeProperties & curPop=getNodeProperty(nodeID);
-
-		if(!curPop.isGated())
-		{
-			if(g_loglevel>=POPULATION_LEVEL)
-				COUT <<"go to the ungated reference node:"<<curPop.getName()<<endl;
-			calgate(nodeID, computeTerminalBool);
-		}
-
-		vector<bool> curPopInd=getIndices(nodeID);
-		if(it->isNot)
-			curPopInd.flip();
-
-		/*
-		 * for the first reference node
-		 * assign the indices directly without logical operation
-		 */
-		if(it==boolOpSpec.begin())
-			ind=curPopInd;
-		else
-		{
-			switch(it->op)
-			{
-				case '&':
-					transform (ind.begin(), ind.end(), curPopInd.begin(), ind.begin(),logical_and<bool>());
-					break;
-				case '|':
-					transform (ind.begin(), ind.end(), curPopInd.begin(), ind.begin(),logical_or<bool>());
-					break;
-				default:
-					throw(domain_error("not supported operator!"));
-			}
-		}
-
-	}
-
-	// make it relative to parent
+	BoolVec parentInd = getIndices(parentID, commonAncestorID);
 	unsigned nSize = count(parentInd.begin(),parentInd.end(),true);
 	BoolVec res(nSize);
 	for(unsigned i = 0, j = 0; i < ind.size(); i++)

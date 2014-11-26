@@ -215,7 +215,7 @@ public:
 	void transforming();
 
 	void gating(VertexID,bool recompute=false, bool computeTerminalBool=true);
-	void calgate(VertexID, bool computeTerminalBool);
+	void calgate(VertexID, bool computeTerminalBool=true);
 	vector<bool> boolGating(VertexID, VertexID parentID, bool computeTerminalBool);
 	vector<bool> boolGating(vector<BOOL_GATE_OP> boolOpSpec, VertexID parentID,bool computeTerminalBool);
 

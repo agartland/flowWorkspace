@@ -188,7 +188,7 @@ BOOST_AUTO_TEST_CASE(HVTN080_batch_1057)
 	BOOST_CHECK_EQUAL_COLLECTIONS(myTest.isEqual.begin(), myTest.isEqual.end(),isTrue.begin(), isTrue.end());
 
 }
-BOOST_AUTO_TEST_CASE(HVTN080_batch_0939)
+BOOST_AUTO_TEST_CASE(HVTN080_Normalization)
 {
 	myTest.filename="../fjWsExamples/080 batch 0939.xml";
 	myTest.wsType = WS_MAC;
