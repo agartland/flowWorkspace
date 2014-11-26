@@ -716,27 +716,30 @@ vector<bool> GatingHierarchy::boolGating(VertexID u, VertexID parentID, bool com
  */
 vector<bool> GatingHierarchy::boolGating(vector<BOOL_GATE_OP> boolOpSpec,VertexID parentID, bool computeTerminalBool){
 
-	vector<bool> ind;
-	VertexID commonAncestorID = 0;
-	/*
-	 * combine the indices of reference populations
-	 */
-
-
-	for(vector<BOOL_GATE_OP>::iterator it=boolOpSpec.begin();it!=boolOpSpec.end();it++)
+	//get the reference node IDs
+	unsigned nSize = boolOpSpec.size() + 1;
+	VertexID_vec refNodeIDs(nSize);
+	refNodeIDs.at(0) = parentID;
+	for(unsigned i = 1; i < nSize; i++)
 	{
-		/*
-		 * find id of reference node
-		 */
-		VertexID nodeID;
 		/*
 		 * assume the reference node has already added during the parsing stage
 		 */
-		vector<string> nodePath=it->path;
+		vector<string> nodePath=boolOpSpec.at(i-1).path;
+		refNodeIDs.at(i) = getNodeID(nodePath);
+	}
 
-		nodeID=getNodeID(nodePath);//search ID by path
+	unsigned nDepths;
+	VertexID commonAncestorID = getCommonAncestor(refNodeIDs,nDepths);
 
 
+	/*
+	 * get the indices of reference nodes (include parent node)
+	 */
+	vector<BoolVec> indVec(nSize);
+	for(unsigned i = 0; i < nSize; i++)
+	{
+		VertexID nodeID = refNodeIDs.at(i);
 		nodeProperties & curPop=getNodeProperty(nodeID);
 
 		if(!curPop.isGated())
@@ -746,19 +749,29 @@ vector<bool> GatingHierarchy::boolGating(vector<BOOL_GATE_OP> boolOpSpec,VertexI
 			calgate(nodeID, computeTerminalBool);
 		}
 
-		vector<bool> curPopInd=getIndices(nodeID, commonAncestorID);
-		if(it->isNot)
-			curPopInd.flip();
-
+		indVec.at(i) = getIndices(nodeID, commonAncestorID);
+	}
+	/*
+	 * bool combine these indices
+	 */
+	vector<bool> ind;
+	for(unsigned i = 0; i < nSize; i++)
+	{
+		BoolVec curPopInd = indVec.at(i);
 		/*
-		 * for the first reference node
+		 * for the first reference node(i.e. parent node)
 		 * assign the indices directly without logical operation
 		 */
-		if(it==boolOpSpec.begin())
-			ind=curPopInd;
+		if(i == 0)
+		{
+			ind = curPopInd;
+		}
 		else
 		{
-			switch(it->op)
+			BOOL_GATE_OP thisBoolOp = boolOpSpec.at(i-1);
+			if(thisBoolOp.isNot)
+				curPopInd.flip();
+			switch(thisBoolOp.op)
 			{
 				case '&':
 					transform (ind.begin(), ind.end(), curPopInd.begin(), ind.begin(),logical_and<bool>());
@@ -769,13 +782,15 @@ vector<bool> GatingHierarchy::boolGating(vector<BOOL_GATE_OP> boolOpSpec,VertexI
 				default:
 					throw(domain_error("not supported operator!"));
 			}
+
 		}
 
 	}
 
-	// make it relative to parent
-	BoolVec parentInd = getIndices(parentID, commonAncestorID);
-	unsigned nSize = count(parentInd.begin(),parentInd.end(),true);
+
+	// generate the indices relative to parent node
+	BoolVec parentInd = indVec.at(0);
+	nSize = count(parentInd.begin(),parentInd.end(),true);
 	BoolVec res(nSize);
 	for(unsigned i = 0, j = 0; i < ind.size(); i++)
 	{
@@ -783,6 +798,7 @@ vector<bool> GatingHierarchy::boolGating(vector<BOOL_GATE_OP> boolOpSpec,VertexI
 			res.at(j++) = ind.at(i);
 	}
 	return res;
+
 
 }
 
