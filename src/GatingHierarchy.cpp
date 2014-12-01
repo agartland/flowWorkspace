@@ -1396,7 +1396,7 @@ BoolVec GatingHierarchy::getIndices(VertexID u, VertexID refNodeID){
 		{
 			if(pInd.at(i))
 			{
-				pInd.at(i) = pInd.at(i) && ind.at(j++);
+				pInd.at(i) = ind.at(j++);
 			}
 		}
 		ind = pInd;
