@@ -281,6 +281,28 @@ BOOST_AUTO_TEST_CASE(ragon)
 	BOOST_CHECK_EQUAL_COLLECTIONS(myTest.isEqual.begin(), myTest.isEqual.end(),isTrue.begin(), isTrue.end());
 
 }
+//BOOST_AUTO_TEST_CASE(diva_PE)
+//{
+//	myTest.filename="../wsTestSuite/diva/PE_2/PE_2.xml";
+//	myTest.wsType = WS_DIVA;
+//	myTest.samples["28"]="477889_env_cct_norm_concatenated.txt";
+//	myTest.sampNloc=1;
+//	myTest.ncfile="../output/Ragon/nc_comp.nc";
+//	myTest.colfile="../output/Ragon/colnames.txt";
+//	myTest.archive="../output/Ragon/gs";
+//
+////	myTest.isSaveArchive = true;
+////	myTest.isLoadArhive = true;
+//
+//
+//
+//	parser_test(myTest);
+//
+//	vector<bool> isTrue(myTest.isEqual.size(), true);
+//	BOOST_CHECK_EQUAL_COLLECTIONS(myTest.isEqual.begin(), myTest.isEqual.end(),isTrue.begin(), isTrue.end());
+//
+//}
+
 //BOOST_AUTO_TEST_CASE(mssm)
 //{
 //	myTest.filename="../data/mssm/CFSP_Analysis14.wsp";

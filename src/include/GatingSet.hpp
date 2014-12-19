@@ -27,6 +27,7 @@ using namespace std;
 #define WS_MAC 2
 #define WS_VX 3
 #define WS_MAC_3 4
+#define WS_DIVA 5
 /*
  * have to use pointer GatingHierarchy * here,
  * because GatingHierarchy's destructor is responsible for clearing dynamically allocated memory

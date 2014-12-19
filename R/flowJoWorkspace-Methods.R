@@ -40,9 +40,19 @@ setMethod("openWorkspace",signature=signature(file="character"),definition= func
 	}else{
 		stop("Require a filename of a workspace, but received ",class(x)[1]);
 	}
-	ver<-xpathApply(x,"/Workspace",function(x)xmlGetAttr(x,"version"))[[1]]
-	x<-new("flowJoWorkspace",version=ver,.cache=new.env(parent=emptyenv()),file=basename(file),path=dirname(file),doc=x, options = as.integer(options))
-	x@.cache$flag=TRUE;
+#    browser()
+    rootNode <- names(xmlChildren(x))
+    
+    ver <- xpathApply(x, paste0("/", rootNode),function(x)xmlGetAttr(x,"version"))[[1]]
+    if(rootNode == "Workspace"){
+      x<-new("flowJoWorkspace",version=ver,.cache=new.env(parent=emptyenv()),file=basename(file),path=dirname(file),doc=x, options = as.integer(options))
+      x@.cache$flag <- TRUE   
+    }else if(rootNode == "bdfacs"){
+      x <- new("divaWorkspace",version=ver,.cache=new.env(parent=emptyenv()),file=basename(file),path=dirname(file),doc=x, options = as.integer(options))
+      x@.cache$flag <- TRUE
+    }else
+      stop("Unrecognized xml root node: ", rootNode)
+	
 	return(x);
 })
 
@@ -488,9 +498,8 @@ setMethod("getSamples","flowJoWorkspace",function(x, sampNloc="keyword"){
 #' @rdname getSampleGroups
 #' @export 
 setMethod("getSampleGroups","flowJoWorkspace",function(x){
+            wsType <- .getWorkspaceType(x@version)      
             x <- x@doc
-            wsversion <- xpathApply(x,"/Workspace",function(z)xmlGetAttr(z,"version")[[1]])[[1]]
-            wsType <- .getWorkspaceType(wsversion)
 			.getSampleGroups(x, wsType = wsType)
 		})
 
