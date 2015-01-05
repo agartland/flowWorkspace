@@ -155,290 +155,132 @@ setMethod("parseWorkspace",signature("divaWorkspace"),function(obj, ...){
   fs <- read.ncdfFlowSet(files,isWriteSlice=FALSE,...)
 
   rootDoc <- ws@doc
-  # get comp (assuming identical for entire experiment)
-  browser()       
-  comp <- xpathApply(groupNode, "/")
-  xpathLogParam <- paste0("/bdfacs/experiment/instrument_settings/parameter[is_log='true']")
-  logParamNodes <- xpathApply(rootDoc, xpathLogParam)
   
-  axis <- lapply(files,function(file){
+  xpathGroup <- paste0("/bdfacs/experiment/specimen[@name='", groupName, "']")  
+
+  for(file in files)
+  {
         
         
         sampleName <- basename(file)
-        browser()       
+            
         #get tube node
-        xpathGroup <- paste0("/bdfacs/experiment/specimen[@name='", groupName, "']")
         xpathSample <- paste0(xpathGroup, "/tube[data_filename='", sampleName, "']")
-        sampleNode <- xpathApply(rootDoc, xpathSample)
-         
+        sampleNode <- xpathApply(rootDoc, xpathSample)[[1]]
         
-        
+        # get comp 
+        comp <- xpathApply(sampleNode, "instrument_settings/parameter", function(paramNode){
+          
+          paramName <- xmlGetAttr(paramNode, "name")
+          
+          isComp <- as.logical(xmlValue(xmlElementsByTagName(paramNode, "is_log")[[1]]))
+          if(isComp){
+#             browser()
+            coef <- as.numeric(xpathSApply(paramNode, "compensation/compensation_coefficient", xmlValue))
+            res <- list(coef)
+            names(res) <- paramName
+            
+          }else
+            res <- NULL
+            return(res)
+        })
+        comp <- unlist(comp, recur = F)
+        comp <- data.frame(comp, check.names = F)
+        comp <- t(comp)
+        colnames(comp) <- rownames(comp)
+        comp <- compensation(comp)
         ##################################
         #Compensating the data
         ##################################
-        if(execute)
-        {
           
-          cnd <- colnames(fs)
-          message("loading data: ",file);
-          if(isNcdf)
-            data <- read.FCS(file)[, cnd]
-          else
-            data <- fs[[sampleName]]
-          
-          #alter colnames(replace "/" with "_") for flowJo X
-          if(wsType == "vX"){
-            new_cnd <- gsub("/","_",cnd)
-            if(!all(new_cnd == cnd)){ #check if needs to update colnames to avoid unneccessary expensive colnames<- call
-              cnd <- new_cnd
-              colnames(data) <- cnd
-              
-            }
-            
-          }
-          
-          
-          
-          if(cid=="")
-            cid=-2
-          
-          if(cid!="-1" && cid!="-2"){
-            message("Compensating");
-            
-            marker <- comp$parameters
-            
-            if(is.null(compensation)){
-              ## try to match marker from comp with flow data in case flowJo is not consistent with data
-              markerInd <- sapply(marker, function(thisMarker)grep(thisMarker, cnd, ignore.case = ignore.case))
-              matchedMarker <- cnd[markerInd]
-              if(length(matchedMarker) != length(marker))
-                stop("channels mismatched between compensation and flow data!")
-              marker <- matchedMarker
-              
-              compobj <- compensation(matrix(comp$spillOver,nrow=length(marker),ncol=length(marker),byrow=TRUE,dimnames=list(marker,marker)))
-            }else
-              compobj <- compensation#TODO: to update compensation information in C part
-            #TODO this compensation will fail if the parameters have <> braces (meaning the data is stored compensated).
-            #I need to handle this case properly.
-            
-            res <- try(compensate(data,compobj),silent=TRUE)
-            if(inherits(res,"try-error")){
-              message("Data is probably stored already compensated");
-            }else{
-              data <- res
-              rm(res);
-            }
-            
-          }
-          else if(cid=="-2"){
-            #TODO the matrix may be acquisition defined.
-            message("No compensation");
-          }
-          else if(cid=="-1")
-          {
-            ##Acquisition defined compensation.
-            nm <- comp$comment
-            
-            
-            if(grepl("Acquisition-defined",nm)){
-              ###Code to compensate the sample using the acquisition defined compensation matrices.
-              message("Compensating with Acquisition defined compensation matrix");
-              #browser()
-              if(is.null(compensation))
-              {
-                compobj <- compensation(spillover(data)$SPILL)
-                
-              }else
-              {
-                compobj <- compensation
-                
-              }
-              
-              res <- try(compensate(data,compobj),silent=TRUE)
-              
-              if(inherits(res,"try-error")){
-                message("Data is probably stored already compensated");
-              }else{
-                data<-res
-                rm(res);
-                
-              }
-              
-            }
-            
-          }
-        }else{
-          # get kw from ws (We are not sure yet if this R API will always 
-          # return keywords from workspace successfully, thus it is currently
-          # only used when execute = FALSE
-          if(!is.null(ws))
-            kw <- getKeywords(ws, sampleName, sampNloc = sampNloc)
-          #use $PnB to determine the number of parameters since {N,R,S) could be
-          #redundant in some workspaces
-          key_names <- unique(names(kw[grep("\\$P[0-9]{1,}B", names(kw))]))
-          key_names <- gsub("B", "N", key_names, fixed = TRUE)
-          cnd <- as.vector(unlist(kw[key_names]))   
-          
-        }
+        cnd <- colnames(fs)
+
+        message("loading data: ",file);
+        data <- read.FCS(file)[, cnd]
         
-        ##################################
-        #alter the colnames
-        ##################################
-        if(cid!="-2")
-        {
-          
-          #get prefix if it is not set yet
-          if(is.null(prefixColNames)&&prefix){
-            
-            if(is.null(cnd)){
-              cnd <- as.vector(parameters(data)@data$name)
-            }
-            prefixColNames <- cnd
-            if(execute)
-              comp_param <- parameters(compobj)
-            else
-              comp_param <- comp$parameters
-            
-            wh <- match(comp_param, prefixColNames)
-            
-            prefixColNames[wh] <- paste(comp$prefix,comp_param,comp$suffix,sep="")
-            
-            
-            
-          }
-        }else{
-          prefixColNames <- cnd
-        }
-        ##################################
-        #transforming and gating
-        ##################################
-        if(execute)
-        {
-          
-          message(paste("gating ..."))
-          #stop using gating API of cdf-version because c++ doesn't store the view of ncdfFlowSet anymore
-          mat <- data@exprs #using @ is faster than exprs()
-          #get gains from keywords
-          # for now we still parse it from data
-          # once confirmed that workspace is a reliable source for this info
-          # we can parse it from ws as well
-          this_pd <- pData(parameters(data))
-          paramIDs <- rownames(pData(parameters(data)))
-          key_names <- paste(paramIDs,"G",sep="")
-          kw <- keyword(data)
-          if(as.numeric(kw[["FCSversion"]])>=3){
-            kw_gains <- kw[key_names]
-            
-            # For keywords where the gain is not set, the gain is NULL.
-            # We replace these instances with the default of 1.
-            kw_gains[sapply(kw_gains, is.null)] <- 1
-            
-            gains <- as.numeric(kw_gains)
-          }else{
-            gains <- rep(1,length(paramIDs))
-          }
-          
-          names(gains) <- this_pd$name
-          
-          #update colnames in order for the gating to find right dims
-          if(!is.null(prefixColNames)){
-            dimnames(mat) <- list(NULL, prefixColNames)
-          }
-          recompute <- FALSE
-          nodeInd <- 0
-          
-          .Call("R_gating",G@pointer, mat, sampleName, gains, nodeInd, recompute, extend_val, ignore.case, leaf.bool)
-#            browser()
-          #restore the non-prefixed colnames for updating data in fs with [[<-
-          #since colnames(fs) is not udpated yet.
-          if(!is.null(prefixColNames)){
-            #restore the orig colnames(replace "_" with "/") for flowJo X
-            if(wsType == "vX"){
-              old_cnd <- gsub("_","/",cnd)
-              if(!all(old_cnd == cnd)){ #check if needs to update colnames to avoid unneccessary expensive colnames<- call
-                cnd <- old_cnd
-                colnames(data) <- cnd #restore colnames for flowFrame as well for flowJo vX  
-              }
-              
-            }
-            dimnames(mat) <- list(NULL, cnd)
-          }
-          
-          data@exprs <- mat #circumvent the validity check of exprs<- to speed up
-          if(isNcdf){
-            fs[[sampleName]] <- data
-            
-          }else{
-            assign(sampleName,data,fs@frames)
-          }
-          #range info within parameter object is not always the same as the real data range
-          #it is used to display the data.
-          #so we need update this range info by transforming it
-          tInd <- grepl("[Tt]ime",cnd)
-          if(any(tInd))
-            tRg  <- range(mat[,tInd])
-          else
-            tRg <- NULL
-          axis.labels <- .transformRange(G,sampleName,wsType,fs@frames,timeRange = tRg)
-          
-        }else{
-          #extract gains from keyword of ws
-          #currently it is only used for extracting gates without gating
-          #In future we want to use it for gating as well
-          #once we have confirmed that ws is a reliable source of keyword
-#          browser()
-          
-          #get gains from keywords
-          kw_gains <- grep("P[0-9]{1,}G", names(kw))
-          
-          if(length(kw_gains) > 0){
-            key_names <- unique(names(kw[kw_gains]))
-            kw_gains <- kw[key_names]
-            
-            # For keywords where the gain is not set, the gain is NULL.
-            # We replace these instances with the default of 1.
-            kw_gains[sapply(kw_gains, is.null)] <- 1
-            
-            gains <- as.numeric(kw_gains)                      
-          }else{
-            gains <- rep(1,length(cnd))
-          }
-          
-          
-          names(gains) <- prefixColNames
-          #transform and adjust the gates without gating
-          .Call("R_computeGates",G@pointer, sampleName, gains, extend_val, extend_to)
-          axis.labels <- list()
-        }
+        message("Compensating");
+        data <- compensate(data,comp)
+     
         
-        #set global variable
-        tempenv$prefixColNames <- prefixColNames
+
+        message(paste("transforming ..."))
         
-        #return axis.labels
-        axis.labels
-      })
+        trans <- flowJoTrans()
+        translist <- transformList(parameters(comp), trans)
+        data <- transform(data, translist)
+
+
+        fs[[sampleName]] <- data
+        
+          
+        
+    }
   
-  names(axis) <- basename(files)
-  G@axis <- axis
-  G@flag <- execute #assume the excution would succeed if the entire G gets returned finally
   
-  if(execute)
-  {
-#		browser()
-    #update colnames
-    #can't do it before fs fully compensated since
-    #compensate function check the consistency colnames between input flowFrame and fs
-    if(!is.null(tempenv$prefixColNames))
-      colnames(fs) <- tempenv$prefixColNames
+  gs <- GatingSet(fs)
+  message("parsing gates ...")
+  for(sn in sampleNames(gs)){
+    gh <- gs[[sn]]
+    xpathSample <- paste0(xpathGroup, "/tube[data_filename='", sampleName, "']")
+    sampleNode <- xpathApply(rootDoc, xpathSample)[[1]]
+    #assume the gates listed in xml follows the topological order
+    oldRoot <- NULL
+    gateNodes <- xpathApply(sampleNode, "gates/gate") 
+    for(gateNode in gateNodes)
+    {
+      nodeName <- xmlGetAttr(gateNode, "fullname")
+      nodeName <- gsub("\\\\", "/", nodeName)
+      nodeName <- basename(nodeName)
+      parent <- xmlElementsByTagName(gateNode, "parent")
+      if(length(parent) > 0){
+        parent <- xmlValue(parent[[1]])
+        parent <- gsub("\\\\", "/", parent)
+        parent <- gsub(oldRoot, "root", parent)    
+        
+        #TODO: to store it to gs
+        ws_count <- xmlValue(xmlElementsByTagName(gateNode, "num_events")[[1]])
+        regionNode <- xmlElementsByTagName(gateNode, "region")[[1]]
+        xParam <- xmlGetAttr(regionNode, "xparm")
+        yParam <- xmlGetAttr(regionNode, "yparm")
+        gType <- xmlGetAttr(regionNode, "type")
+        
+        mat <- xpathSApply(regionNode, "points/point", function(pointNode)as.numeric(xmlAttrs(pointNode)))
+        if(gType == "RECTANGLE_REGION"){
+          x <- unique(mat[1,])
+          y <- unique(mat[2,])
+          if(length(x)!=2||length(y)!=2)
+            stop("invalid RECTANGLE_REGION from ", nodeName)
+          coord <- list(x,y)
+          names(coord) <- c(xParam, yParam)
+          gate <- rectangleGate(.gate = coord)
+        }else if(gType == "POLYGON_REGION"){
+          rownames(mat) <- c(xParam, yParam)
+          gate <- polygonGate(.gate = t(mat))
+        }else if(gType == "INTERVAL_REGION"){
+          browser()
+          coord <- list(mat[1,])
+          names(coord) <- xParam
+          gate <- rectangleGate(coord)
+        }else
+          stop("unsupported gate type: ", gType)
+        
+        add(gh, gate, parent = parent, name = nodeName)
+        recompute(gh, file.path(parent, nodeName))
+        
+      }else{
+        oldRoot <- nodeName
+        next
+      }
+      
+      
+    }
     
-    #attach filename and colnames to internal stucture for gating
-#		browser()
+      
   }
   
-  flowData(G) <- fs
-  G
   
-  
+
+
   
   message("done!")
   
