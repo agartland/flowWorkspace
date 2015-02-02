@@ -47,7 +47,7 @@ struct coordinate
 		coor_pb.set_x(x);
 		coor_pb.set_y(y);
 	};
-	coordinate(pb::coordinate & coor_pb):x(coor_pb.x()),y(coor_pb.y()){};
+	coordinate(const pb::coordinate & coor_pb):x(coor_pb.x()),y(coor_pb.y()){};
 };
 bool compare_x(coordinate i, coordinate j);
 bool compare_y(coordinate i, coordinate j);
@@ -319,8 +319,8 @@ public:
 	scaleTrans(float _scale_factor);
 	void transforming(valarray<double> & input);
 	scaleTrans * clone(){return new scaleTrans(*this);};
-	void convertToPb(pb::transformation & trans_pb);
-	scaleTrans(const pb::transformation & trans_pb);
+//	void convertToPb(pb::transformation & trans_pb);
+//	scaleTrans(const pb::transformation & trans_pb);
 };
 
 

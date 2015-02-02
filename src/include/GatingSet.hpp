@@ -15,10 +15,6 @@
 #include <string>
 #include <map>
 
-
-
-
-
 using namespace std;
 
 #define ARCHIVE_TYPE_BINARY 0
@@ -108,8 +104,8 @@ public:
 	GatingHierarchy * getGatingHierarchy(string );
 	GatingHierarchy * getGatingHierarchy(unsigned int);
 	void gating();
-	void parseWorkspace(unsigned short,bool);
-	void parseWorkspace(vector<string>,bool);
+	void parseWorkspace(unsigned short,bool, StringVec sampleNames);
+	void parseWorkspace(vector<string>,bool, StringVec sampleNames);
 	vector<string> getSamples(void);
 
 	GatingSet * clone_treeOnly(vector<string> samples);
@@ -117,7 +113,7 @@ public:
 	void serialize_pb(string filename);
 	void add(GatingSet & gs,vector<string> sampleNames);
 	void addTransMap(string gName,trans_map tm);
-	void convertToPb(pb::GatingSet & gs_pb);
+	void convertToPb(pb::GatingSet & gs_pb,string path);
 
 };
 

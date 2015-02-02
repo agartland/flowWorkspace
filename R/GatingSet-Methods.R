@@ -66,13 +66,16 @@ save_gs<-function(G,path,overwrite = FALSE
   isPB <- lib == "PB"
   if(isPB)
     fileext <- 'pb'
-  else
+  else{
+    warning("Boost serialization format is to be deprecated. Try to use 'google protocol buffer' instead (lib = 'PB')!")
     fileext <-  switch(type
-                      , binary = "dat"
-                      , text = "txt"
-                      , xml = "xml"
-                      , "dat"
-                  )
+        , binary = "dat"
+        , text = "txt"
+        , xml = "xml"
+        , "dat"
+    )
+  }
+    
   
   guid <- G@guid
   if(length(guid) == 0){
@@ -185,14 +188,17 @@ load_gs<-function(path){
     isPB <- lib == "PB"
     if(isPB)
       fileext <- 'pb'
-    else
+    else{
+      warning("Boost serialization format is to be deprecated. Try to use 'google protocol buffer' instead (lib = 'PB')!")
       fileext <-  switch(type
           , binary = "dat"
           , text = "txt"
           , xml = "xml"
           , "dat"
       )
-    
+      
+    }
+      
 
     if(!file.exists(path))
       stop("Folder '",path, "' does not exist!")
@@ -242,7 +248,7 @@ load_gs<-function(path){
 
     message("saving tree object...")
     #save external pointer object
-    .Call("R_saveGatingSet",G@pointer,dat.file, typeID, isPB)
+    .Call("R_saveGatingSet",G@pointer, dat.file, typeID, isPB)
 
     message("saving R object...")
     saveRDS(G,rds.file)
@@ -253,7 +259,7 @@ load_gs<-function(path){
 #' unserialization functions to be called by wrapper APIs
 #' @importFrom tools file_ext
 .load_gs <- function(output,files){
-      dat.file<-file.path(output,files[grep(".pb$|.dat$|.txt$|.xml$",files)])
+      dat.file <- file.path(output,files[grep(".pb$|.dat$|.txt$|.xml$",files)])
       rds.file<-file.path(output,files[grep(".rds$",files)])
 
       nc.file<-file.path(output,files[grep(".nc$|.nc.trans$",files)])
@@ -264,7 +270,9 @@ load_gs<-function(path){
         stop("multiple .dat or .pb files found in ",output)
       fileext <- file_ext(dat.file)
       isPB <- fileext == "pb"
-      #only meaning for for BS
+      if(!isPB)
+        warning("Boost serialization format is to be deprecated. Try to resave it with 'google protocol buffer' (lib = 'PB')!")
+      #only meaningful for BS
       typeID <- switch(fileext
                       , "dat" = 0
                       , "txt" = 1
@@ -310,7 +318,7 @@ load_gs<-function(path){
                           }, simplify = FALSE)
 
 
-        gs <- new("GatingSet", flag = TRUE, FCSPath = thisPath, guid = thisGuid, axis = axis, data = fs)
+        gs <- new("GatingSet", flag = TRUE, guid = thisGuid, axis = axis, data = fs)
       }
 
       
@@ -321,7 +329,7 @@ load_gs<-function(path){
       }
 
       message("loading tree object...")
-      gs@pointer<-.Call("R_loadGatingSet",dat.file, typeID, isPB)
+      gs@pointer<-.Call("R_loadGatingSet", dat.file, typeID, isPB)
 
 
       if(isNcdf(gs))
@@ -391,78 +399,128 @@ unarchive<-function(file,path=tempdir()){
 
 
 
-.parseWorkspace <- function(xmlFileName,sampleIDs,execute,path,isNcdf,includeGates,sampNloc="keyword",xmlParserOption, wsType, ...){
-
-
+.parseWorkspace <- function(xmlFileName,samples, execute = TRUE, path = ws@path, isNcdf = TRUE, includeGates = TRUE,sampNloc="keyword",xmlParserOption, wsType, ws, additional.keys, ...){
+  
 	message("calling c++ parser...")
-#	browser()
 
 	time1<-Sys.time()
 	G <- GatingSet(x = xmlFileName
-                  , y = sampleIDs
+                  , y = as.character(samples[["sampleID"]])
+                  , guids = samples[["guid"]]
                   , includeGates = includeGates
-                  , sampNloc=sampNloc
+                  , sampNloc = sampNloc
                   , xmlParserOption = xmlParserOption
                   , wsType = wsType
                   )
 
 	message("c++ parsing done!")
-	samples <- .Call("R_getSamples",G@pointer)
 
-#	browser()
+	
 	#loading and filtering data
 	if(execute)
 	{
-
-		dataPaths<-vector("character")
-		excludefiles<-vector("logical")
-		for(file in samples){
-
-			#########################################################
-			#get full path for each fcs and store in FCSPath slot
-			#########################################################
-			##escape "illegal" characters
-			file<-gsub("\\?","\\\\?",gsub("\\]","\\\\]",gsub("\\[","\\\\[",gsub("\\-","\\\\-",gsub("\\+","\\\\+",gsub("\\)","\\\\)",gsub("\\(","\\\\(",file)))))))
-			absPath<-list.files(pattern=paste("^",file,"",sep=""),path=path,recursive=TRUE,full.names=TRUE)
-
-			if(length(absPath)==0){
-				warning("Can't find ",file," in directory: ",path,"\n");
-				excludefiles<-c(excludefiles,TRUE);
-
-			}else{
-#				browser()
-				dataPaths<-c(dataPaths,dirname(absPath[1]))
-				excludefiles<-c(excludefiles,FALSE);
-			}
-		}
-		#Remove samples where files don't exist.
-		if(length(which(excludefiles))>0){
-			message("Removing ",length(which(excludefiles))," samples from the analysis since we can't find their FCS files.");
-			samples<-samples[!excludefiles];
-		}
-
-
-		files<-file.path(dataPaths,samples)
-        G@FCSPath <- dataPaths
+        nSamples <- nrow(samples)
+        
+        if(is.data.frame(path)){
+          #use the file path provided by mapping
+        
+        #validity check for path
+        mapCols <- c("sampleID", "file")
+        if(!setequal(colnames(path), c("sampleID", "file")))
+          stop("When 'path' is a data.frame, it must contain columns: ", paste(dQuote(mapCols), collapse = ","))
+        if(class(path[["sampleID"]])!="numeric")
+          stop("'sampleID' column in 'path' argument must be numeric!")
+        
+        path[["file"]] <- as.character(path[["file"]])
+        
+        samples.matched <- merge(samples, path, by = "sampleID")
+          
+        }else{
+          
+          #search file system
+          
+      	  samples.matched <- ldply(1:nSamples, function(i){
+                                                row <- samples[i,]
+                                                filename <- row[["name"]]
+                                                guid <- row[["guid"]]
+                                                sampleID <- row[["sampleID"]]
+                                                #########################################################
+                                                #get full path for each fcs
+                                                #########################################################
+                                                ##escape "illegal" characters
+                                                filename <- gsub("\\?","\\\\?",gsub("\\]","\\\\]",gsub("\\[","\\\\[",gsub("\\-","\\\\-",gsub("\\+","\\\\+",gsub("\\)","\\\\)",gsub("\\(","\\\\(",filename)))))))
+                                                absPath <- list.files(pattern=paste("^",filename,"",sep=""),path=path,recursive=TRUE,full.names=TRUE)
+                                                nFound <- length(absPath)
+                             
+                                                if(nFound == 0){
+                                                	warning("Can't find ",filename," in directory: ",path,"\n");
+                                                  row <- NULL              
+                                                }else if(nFound > 1){
+                                                    #try to use additional keywords to help find the correct file
+                                                    if(is.null(additional.keys))
+                                                      stop('Multiple files matched for:', filename)
+                                                    else
+                                                    {
+                                                       guids.fcs <-  sapply(absPath, function(thisPath){
+                                                                         # get keyword from FCS header
+                                                                        kw <- as.list(read.FCSheader(thisPath)[[1]])
+                                                                        kw <- trimWhiteSpace(unlist(kw[additional.keys]))
+                                                                        # construct guids
+                                                                        thisFile <- basename(thisPath)
+                                                                        paste(c(thisFile, as.vector(kw)), collapse = "_")
+                                                                      }, USE.NAMES = F)  
+                                                      matchInd <- grep(guid, guids.fcs)                                
+                                                      if(length(matchInd)==0){
+                                                        warning("Can't find ",guid," in directory: ",path,"\n");
+                                                        row <- NULL
+                                                      }else if(length(matchInd) > 1){
+                                                        stop('Multiple files matched for:', guid)
+                                                      }else
+                                                        absPath <- absPath[matchInd]
+                                                    }
+                                                }
+                                                
+                                                if(!is.null(row))
+                                                  row[["file"]] <- absPath
+                                                
+                                                row
+                                      	})
+        }
+    	#Remove samples where files don't exist.
+        nMatched <- nrow(samples.matched)
+    	if(nMatched < nSamples){
+    		message("Removing ", nSamples -  nMatched," samples from the analysis since we can't find their FCS files.");
+    		
+              
+    	}
+        
 	}else
-	{
-		files<-samples
-	}
-	G <- .addGatingHierarchies(G,files,execute,isNcdf, wsType = wsType, ...)
+      samples.matched  <- samples
+      
+      
+    
+	G <- .addGatingHierarchies(G,samples.matched,execute,isNcdf, wsType = wsType, sampNloc = sampNloc, ws = ws, ...)
 
 
 	message("done!")
 
+    
+     
+    #we don't want to return the splitted gs since they share the same cdf and externalptr
+    #thus should be handled differently(more efficiently) from the regular gslist
 
-    # try to post process the GatingSet to split the GatingSets(based on different the gating trees) if needed                
+#    # try to post process the GatingSet to split the GatingSets(based on different the gating trees) if needed                
     gslist <- suppressMessages(.groupByTree(G))
-    if(length(gslist) == 1)
-      return (gslist[[1]])
-    else
+    if(length(gslist) > 1)
+      warning("GatingSet contains different gating tree structures and must be cleaned before using it! ")
+#    if(length(gslist) == 1){
+#      return (gslist[[1]])      
+#    }else
     {
-      warning("Due to the different gating tree structures, a list of GatingSets is returned instead!")
-      return (gslist)
+#      warning("Due to the different gating tree structures, a list of GatingSets is returned instead!")
+#      return (gslist)
     }
+    G
 }
 
 #' constructors for GatingSet
@@ -470,11 +528,10 @@ unarchive<-function(file,path=tempdir()){
 #' construct object from existing gating hierarchy(gating template) and flow data
 #'
 #' @param path \code{character} specifies the path to the flow data (FCS files)
-#' @param isNcdf \code{logical} whether to use ncdfFlowSet or flowSet as the underlying flow data storage
 #' @param ... other arguments. see \link{parseWorkspace}
 #' @rdname GatingSet-methods
 #' @export 
-setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".", isNcdf=FALSE,  ...){
+setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".", ...){
 
 			samples <- y
 			dataPaths <- vector("character")
@@ -509,8 +566,9 @@ setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".
 			message("generating new GatingSet from the gating template...")
 			Object@pointer <- .Call("R_NewGatingSet",x@pointer,sampleNames(x),samples)
             Object@guid <- .uuid_gen()
-            Object@FCSPath <- dataPaths
-			Object<-.addGatingHierarchies(Object,files,execute=TRUE,isNcdf=isNcdf,...)
+            
+            sampletbl <- data.frame(sampleID = NA, name = basename(samples), file = files, guid = basename(samples), stringsAsFactors = FALSE)
+			Object<-.addGatingHierarchies(Object,samples = sampletbl,execute=TRUE,...)
             #if the gating template is already gated, it needs to be recompute explicitly
             #in order to update the counts
             #otherwise, the counts should already have been updated during the copying
@@ -530,26 +588,37 @@ setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".
 #'                                  But when the gates needs to be extended without loading the raw data (i.e. \code{execute} is set to FALSE), then this hard-coded value is used.
 #' @importMethodsFrom flowCore colnames colnames<- compensate spillover sampleNames
 #' @importFrom flowCore compensation read.FCS read.FCSheader read.flowSet
+#' @importFrom Biobase AnnotatedDataFrame
 #' @importClassesFrom flowCore flowFrame flowSet
-.addGatingHierarchies <- function(G,files,execute,isNcdf,compensation=NULL,wsType = "", extend_val = 0, extend_to = -4000, prefix = TRUE, ignore.case = FALSE, ws = NULL, leaf.bool = TRUE,...){
+.addGatingHierarchies <- function(G, samples, execute,isNcdf,compensation=NULL,wsType = "", extend_val = 0, extend_to = -4000, prefix = TRUE, ignore.case = FALSE, ws = NULL, leaf.bool = TRUE, sampNloc = "keyword", ...){
 
-    if(length(files)==0)
-      stop("not sample to be added to GatingSet!")
-
+    if(nrow(samples)==0)
+      stop("no sample to be added to GatingSet!")
+  
+    guids <- samples[["guid"]]
     #load the raw data from FCS
 	if(execute)
 	{
 		if(isNcdf){
 			stopifnot(length(grep("ncdfFlow",loadedNamespaces()))!=0)
 			message("Creating ncdfFlowSet...")
-			fs<-read.ncdfFlowSet(files,isWriteSlice=FALSE,...)
+            #sample names are supplied explicitly through phenoData to optionally use the names other than the original file names
+            pd <- AnnotatedDataFrame(data = data.frame(name = guids
+                                                        ,row.names = guids
+                                                        ,stringsAsFactors=FALSE
+                                                       )
+                                        ,varMetadata = data.frame(labelDescription="Name"
+                                            ,row.names="name")
+                                    )
+                                    
+			fs <- read.ncdfFlowSet(samples[["file"]],isWriteSlice=FALSE, phenoData = pd, ...)
 		}else{
 			message("Creating flowSet...")
-			fs<-read.flowSet(files,...)
+			fs<-read.flowSet(samples[["file"]],...)
 		}
 	}else{
       #create dummy flowSet
-      frList <- sapply(basename(files), function(thisSample){
+      frList <- sapply(guids, function(thisSample){
                         mat <- matrix(data = numeric(0))
                         colnames(mat) <- "FSC-A"
                         fr <- suppressWarnings(flowFrame(exprs = mat))
@@ -563,15 +632,17 @@ setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".
     prefixColNames <- NULL
     assign("prefixColNames",NULL,tempenv)
 
-	axis <- lapply(files,function(file,tempenv){
-
+	axis <- apply(samples,1,function(row,tempenv){
+        
+        sampleID <- as.numeric(row[["sampleID"]])
+        guid <- row[["guid"]]
         #get global variable
         prefixColNames <- tempenv$prefixColNames
 
-		sampleName<-basename(file)
+		
 
         # get comp
-        comp <- .Call("R_getCompensation", G@pointer, sampleName)
+        comp <- .Call("R_getCompensation", G@pointer, guid)
         cid <- comp$cid
         
 
@@ -580,13 +651,13 @@ setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".
         ##################################
         if(execute)
 		{
-
+            file <- row[["file"]]
             cnd <- colnames(fs)
 			message("loading data: ",file);
 			if(isNcdf)
 				data <- read.FCS(file)[, cnd]
 			else
-				data <- fs[[sampleName]]
+				data <- fs[[guid]]
 
             #alter colnames(replace "/" with "_") for flowJo X
             if(wsType == "vX"){
@@ -674,7 +745,7 @@ setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".
          # return keywords from workspace successfully, thus it is currently
          # only used when execute = FALSE
          if(!is.null(ws))
-           kw <- getKeywords(ws, sampleName)
+           kw <- getKeywords(ws, sampleID)
          #use $PnB to determine the number of parameters since {N,R,S) could be
          #redundant in some workspaces
          key_names <- unique(names(kw[grep("\\$P[0-9]{1,}B", names(kw))]))
@@ -749,7 +820,7 @@ setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".
             recompute <- FALSE
             nodeInd <- 0
             
-            .Call("R_gating",G@pointer, mat, sampleName, gains, nodeInd, recompute, extend_val, ignore.case, leaf.bool)
+            .Call("R_gating",G@pointer, mat, guid, gains, nodeInd, recompute, extend_val, ignore.case, leaf.bool)
 #            browser()
             #restore the non-prefixed colnames for updating data in fs with [[<-
             #since colnames(fs) is not udpated yet.
@@ -768,17 +839,20 @@ setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".
 
             data@exprs <- mat #circumvent the validity check of exprs<- to speed up
             if(isNcdf){
-              fs[[sampleName]] <- data
+              fs[[guid]] <- data
 
             }else{
-              assign(sampleName,data,fs@frames)
+              assign(guid,data,fs@frames)
             }
             #range info within parameter object is not always the same as the real data range
             #it is used to display the data.
             #so we need update this range info by transforming it
             tInd <- grepl("[Tt]ime",cnd)
-            tRg  <- range(mat[,tInd])
-            axis.labels <- .transformRange(G,sampleName,wsType,fs@frames,timeRange = tRg)
+            if(any(tInd))
+              tRg  <- range(mat[,tInd])
+            else
+              tRg <- NULL
+            axis.labels <- .transformRange(G,guid,wsType,fs@frames,timeRange = tRg)
 
 		}else{
           #extract gains from keyword of ws
@@ -806,7 +880,7 @@ setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".
 
           names(gains) <- prefixColNames
           #transform and adjust the gates without gating
-          .Call("R_computeGates",G@pointer, sampleName, gains, extend_val, extend_to)
+          .Call("R_computeGates",G@pointer, guid, gains, extend_val, extend_to)
           axis.labels <- list()
         }
 
@@ -817,7 +891,7 @@ setMethod("GatingSet", c("GatingHierarchy", "character"), function(x, y, path=".
         axis.labels
 	},tempenv)
 
-    names(axis) <- basename(files)
+    names(axis) <- guids
     G@axis <- axis
     G@flag <- execute #assume the excution would succeed if the entire G gets returned finally
 
@@ -1326,7 +1400,6 @@ setMethod("plotGate",signature(x="GatingSet",y="character"),function(x,y,lattice
     is.gh <- class(x) == "GatingHierarchy"
     if(is.gh){
       x <- new("GatingSet", pointer = x@pointer 
-                          , FCSPath = x@FCSPath
                           , data = x@data
                           , flag = x@flag
                           , axis = x@axis
@@ -1989,7 +2062,6 @@ setMethod("[[",c(x="GatingSet",i="character"),function(x,i,j,...){
 #      as(x[i], "GatingHierarchy")
       #new takes less time than as method
       new("GatingHierarchy", pointer = x@pointer 
-                            , FCSPath = x@FCSPath
                             , data = x@data
                             , flag = x@flag
                             , axis = x@axis
@@ -2062,7 +2134,7 @@ setMethod("show","GatingSet",function(object){
 #' @export 
 #' @import data.table
 setMethod("getPopStats", "GatingSet",
-    function(x, statistic = c("freq", "count"), flowJo = FALSE, subpopulations = NULL, format = c("wide", "long"), path = "auto", ...) {
+    function(x, statistic = c("freq", "count"), flowJo = FALSE, subpopulations = NULL, format = c("long", "wide"), path = "auto", ...) {
 
       # Based on the choice of statistic, the population statistics are returned for
       # each Gating Hierarchy within the GatingSet.
@@ -2261,88 +2333,66 @@ getIndiceMat <- function(gh,y){
 }
 #' create mapping between pops and channels
 #' 
-#' The goal is to match the marker provided by user up to the flowFrame
-#' to return the accurate channel info for indexing the flow data 
+#' The goal is translate the markers provided by user map or directly parsed from popNames (when map is NULL)
+#' to the accurate channel info for indexing the flow data 
 #' because user might give the short form of either  'name' or 'desc' of flowFrame based on swap argument.
 #' 
 #' @param this_pd \code{data.frame} extraced from flowFrame object to provide the channel and marker info
 #' @param popNames \code{character} node names in gating tree
-#' @param popo_marker_list \code{list} contains the node-to-marker provided by user 
+#' @param map \code{list} contains the node-to-marker mapping explicitly specified user 
 #' 
-.getPopChnlMapping <- function(this_pd, popNames, pop_marker_list, swap = FALSE){
+.getPopChnlMapping <- function(this_pd, popNames, map =  NULL, swap = FALSE, ignore.case = FALSE){
     
   datSrc <- ifelse(swap, "name", "desc")
   this_pd[, datSrc] <- as.vector(this_pd[, datSrc])
-  
-
-  #parse the markers of interest from pop names
-  markers_selected <- sapply(popNames,function(this_pop){
-    this_pops <- strsplit(split="/", this_pop, fixed=TRUE)[[1]]
-    #get the terminal node
-    term_pop <- this_pops[length(this_pops)]
-    term_pop
-  },USE.NAMES=FALSE)
 
   #match to the pdata of flow frame
   all_markers <- this_pd[,datSrc]
-
   all_markers[is.na(all_markers)] <- "NA"
-  is_matched <- sapply(all_markers,function(this_marker){
-    
-    ##using the marker name provided by arguments by default
-    if(is.null(pop_marker_list))
-      matchCount <- 0
-    else{
-      this_matched <- sapply(pop_marker_list, function(i)grepl(pattern = i, x = this_marker, fixed=TRUE))
-      
-      matchCount <- length(which(this_matched))  
-    }
-    
-
-    if(matchCount > 0){
-      if(matchCount > 1)
-      {
-        #more than one matched, then do the exact match
-            this_matched <- sapply(pop_marker_list, function(i)match(i, this_marker))
-            this_matched <- !is.na(this_matched)
-            matchCount <- length(which(this_matched))
-        if(matchCount > 1)
-          stop(this_marker, " is matched with more than one populations")
-      }
-
-      res <- TRUE
-      names(res) <- names(pop_marker_list)[this_matched]
-    }else{
-      #if not given by user, then try to match the name extracted from pop name
-      this_matched <- sapply(markers_selected, function(i)grepl(pattern = i, x = this_marker, fixed=TRUE))
-#      browser()
-      matchCount <- length(which(this_matched))
-      if(matchCount > 1){
-        stop("multiple populations mached to:", this_marker)
-      }else if(matchCount == 0){
-        res <- FALSE
-      }else{
-        res <- TRUE
-        names(res) <- popNames[this_matched]
-      }
-    }
-
-    res
-  }, USE.NAMES=FALSE)
-
-  pop_matched <- is_matched[is_matched]
-  matched_names <- names(pop_matched)
-  sub_match_ind <- match(popNames, matched_names)
-  no_match <- is.na(sub_match_ind)
-  if(any(no_match)){
-    stop("No markers in flow data matches ", "Populations:", paste(popNames[no_match],collapse="; "))
-
-  }
-
-  cbind(pop=as.character(matched_names[sub_match_ind]),this_pd[is_matched,c("name", "desc")][sub_match_ind,])
-
-
-
+#  browser()
+  res <- ldply(popNames, function(popName){
+                
+                #fetch the marker from map first
+                toMatch <- map[[popName]]
+                #if not supplied, parse it from popName
+                if(is.null(toMatch)){
+                  this_pops <- strsplit(split="/", popName, fixed=TRUE)[[1]]
+                  #get the terminal node
+                  toMatch <- this_pops[length(this_pops)]
+                }
+                
+                
+                #partial match first
+                if(ignore.case)
+                  matchedInd <- grep(tolower(toMatch), tolower(all_markers), fixed = TRUE)
+                else
+                  matchedInd <- grep(toMatch, all_markers, fixed = TRUE)
+                if(length(matchedInd) > 1)
+                {
+                  #Switch to exact match because multiple markers matched
+                  if(ignore.case)
+                    matchedInd <- match(tolower(toMatch), tolower(all_markers))
+                  else
+                    matchedInd <- match(toMatch, all_markers)
+                  matchedInd <- matchedInd[!is.na(matchedInd)]
+                  
+                  if(length(matchedInd) == 0){ 
+                    #no exact match
+                    stop(toMatch, "  paritally matched to multiple markers but failed to exactly matched to any of them. ")
+                  }else if(length(matchedInd) > 1){
+                    #multiple exact matches
+                    stop(toMatch, "exactly matches to multiple markers!")
+                  }
+                }else if(length(matchedInd) == 0){
+                  #no partial match
+                  stop("Marker not found: ", toMatch)
+                }
+                
+                this_pd[matchedInd,c("name", "desc")]
+                  
+              })
+  cbind(pop = popNames, res, stringsAsFactors = F)          
+ 
 }
 
 #' Return the cell events data that express in any of the single populations defined in \code{y}
@@ -2351,12 +2401,17 @@ getIndiceMat <- function(gh,y){
 #' 
 #' @param x A \code{GatingSet} or \code{GatingSetList} object .
 #' @param nodes \code{character} vector specifying different cell populations
-#' @param map mapping node names (as specified in the gating hierarchy of the gating set) to channel 
-#'                         names (as specified in either the \code{desc} or \code{name} 
-#'                          columns of the parameters of the associated \code{flowFrame}s 
-#'                          in the \code{GatingSet}).
 #' @param swap \code{logical} indicates whether channels and markers of flow data are swapped.
 #' @param threshold \code{logical} indicates whether to threshold the flow data by setting intensity value to zero when it is below the gate threshold.
+#' @param ... other arguments
+#' 
+#'      map a named list providing the mapping between node names (as specified in the gating hierarchy of the gating set) and channel 
+#'                         names (as specified in either the \code{desc} or \code{name} 
+#'                          columns of the parameters of the associated \code{flowFrame}s 
+#'                          in the \code{GatingSet}). see examples.
+#' 
+#'      ignore.case whether to ignore case when match the marker names. Default is FALSE.
+#' 
 #' @return A \code{list} of \code{numerci matrices}
 #' @aliases getSingleCellExpression
 #' @author Mike Jiang \email{wjiang2@@fhcrc.org}
@@ -2370,7 +2425,7 @@ getIndiceMat <- function(gh,y){
 #' }
 #' @rdname getSingleCellExpression
 #' @export
-setMethod("getSingleCellExpression",signature=c("GatingSet","character"),function(x, nodes, map = NULL, swap = FALSE, threshold = TRUE){
+setMethod("getSingleCellExpression",signature=c("GatingSet","character"),function(x, nodes, swap = FALSE, threshold = TRUE, ...){
   datSrc <- ifelse(swap, "name", "desc")
   fs <- getData(x)
   sapply(sampleNames(x),function(sample){
@@ -2380,7 +2435,7 @@ setMethod("getSingleCellExpression",signature=c("GatingSet","character"),functio
       fr <- fs[[sample, use.exprs = FALSE]] 
       this_pd <- pData(parameters(fr))  
       #get pop vs channel mapping
-      pop_chnl <- .getPopChnlMapping(this_pd, nodes, map, swap = swap)
+      pop_chnl <- .getPopChnlMapping(this_pd, nodes, swap = swap, ...)
       chnls <- as.character(pop_chnl[,"name"])
       pops <-  as.character(pop_chnl[,"pop"])
       

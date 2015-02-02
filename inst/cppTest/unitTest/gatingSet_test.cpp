@@ -187,36 +187,40 @@ void gh_counts(GatingHierarchy* gh,vector<bool> &isEqual, const float tolerance)
 		VertexID u=*it;
 		if(u!=ROOTNODE){
 			nodeProperties &node=gh->getNodeProperty(u);
-			unsigned flowJoCount = node.getStats(false)["count"];
-			unsigned myCount = node.getStats(true)["count"];
-			cout<<u<<"."<<node.getName()<<":";
-			cout<< flowJoCount;
-			cout<<"("<<myCount<<") "<< "cv = ";
-
-			bool thisEqual;
-			float thisCV ;
-			float thisTol = tolerance;
-			if(flowJoCount == myCount){
-				thisEqual = true;
-				thisCV = 0;
-			}
-			else
+			int flowJoCount = node.getStats(false)["count"];
+			if(flowJoCount != -1) //skip the unrecorded flowJo counts
 			{
-				float min = flowJoCount>myCount?myCount:flowJoCount;
-				float max = flowJoCount<myCount?myCount:flowJoCount;
-				float mean = (min+max)/2;
-				float sd = sqrt((pow((min-mean), 2) + pow((max-mean), 2))/2);
-				boost::math::normal_distribution<> dist(mean,sd);
-				float Q1 = quantile(dist,0.25);
-				float Q3 = quantile(dist,0.75);
-				float IQR = Q3 - Q1;
-				thisCV = IQR/mean;
-				thisTol = 1/max+thisTol;//add the weight of N of cells to make it more robust
-				thisEqual = (thisCV < thisTol);
-//				cout << Q1 <<":" <<Q3 << " " << thisCV<<endl;
+
+				int myCount = node.getStats(true)["count"];
+				cout<<u<<"."<<node.getName()<<":";
+				cout<< flowJoCount;
+				cout<<"("<<myCount<<") "<< "cv = ";
+
+				bool thisEqual;
+				float thisCV ;
+				float thisTol = tolerance;
+				if(flowJoCount == myCount){
+					thisEqual = true;
+					thisCV = 0;
+				}
+				else
+				{
+					float min = flowJoCount>myCount?myCount:flowJoCount;
+					float max = flowJoCount<myCount?myCount:flowJoCount;
+					float mean = (min+max)/2;
+					float sd = sqrt((pow((min-mean), 2) + pow((max-mean), 2))/2);
+					boost::math::normal_distribution<> dist(mean,sd);
+					float Q1 = quantile(dist,0.25);
+					float Q3 = quantile(dist,0.75);
+					float IQR = Q3 - Q1;
+					thisCV = IQR/mean;
+					thisTol = 1/max+thisTol;//add the weight of N of cells to make it more robust
+					thisEqual = (thisCV < thisTol);
+	//				cout << Q1 <<":" <<Q3 << " " << thisCV<<endl;
+				}
+				cout << thisCV << " tol = " << thisTol << endl;
+				isEqual.push_back(thisEqual);
 			}
-			cout << thisCV << " tol = " << thisTol << endl;
-			isEqual.push_back(thisEqual);
 		}
 	}
 }
@@ -241,6 +245,7 @@ void parser_test(testCase & myTest){
 	bool isSaveArchive = myTest.isSaveArchive;
 	bool archiveType = myTest.archiveType;
 	string archiveName = myTest.archive;
+
 	if(archiveType)
 		archiveName = archiveName.append(".pb");
 	else
@@ -249,6 +254,7 @@ void parser_test(testCase & myTest){
 		boost::scoped_ptr<GatingSet> gs;
 		if(isLoadArchive)
 		{
+
 			gs.reset(new GatingSet(archiveName, format, archiveType));
 
 		}
@@ -261,11 +267,14 @@ void parser_test(testCase & myTest){
 			vector<string> sampleIDs;
 			for(map<string,string>::iterator it=myTest.samples.begin();it!=myTest.samples.end();it++)
 				sampleIDs.push_back(it->first);
+			vector<string> sampleNames;
+				for(map<string,string>::iterator it=myTest.samples.begin();it!=myTest.samples.end();it++)
+					sampleNames.push_back(it->second);
 			if(isTemplate)
 				sampleIDs.erase(sampleIDs.begin());//remove the first sample,which is used for testing gating template feature
 
 			if(!isLoadArchive)
-				gs->parseWorkspace(sampleIDs,isParseGate);
+				gs->parseWorkspace(sampleIDs,isParseGate,sampleNames);
 
 			cout<<endl<<"get sample names from gating set"<<endl;
 
@@ -321,7 +330,7 @@ void parser_test(testCase & myTest){
 //		boost::archive::binary_oarchive oa(ofs);
 //		oa << BOOST_SERIALIZATION_NVP(boost::serialization::make_array(&thisInd[0],thisInd.size()));
 
-		if((!isLoadArchive)&&isSaveArchive){
+		if(isSaveArchive){
 			if(archiveType == PB)
 				gs->serialize_pb(archiveName);
 			else

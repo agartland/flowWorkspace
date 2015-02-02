@@ -40,7 +40,7 @@ setMethod("openWorkspace",signature=signature(file="character"),definition= func
 	}else{
 		stop("Require a filename of a workspace, but received ",class(x)[1]);
 	}
-	ver<-xpathApply(x,"/Workspace",function(x)xmlGetAttr(x,"version"))[[1]]
+	ver <- xpathApply(x,"/Workspace",function(x)xmlGetAttr(x,"version"))[[1]]
 	x<-new("flowJoWorkspace",version=ver,.cache=new.env(parent=emptyenv()),file=basename(file),path=dirname(file),doc=x, options = as.integer(options))
 	x@.cache$flag=TRUE;
 	return(x);
@@ -79,14 +79,6 @@ setMethod("closeWorkspace","flowJoWorkspace",function(workspace){
 })
 
 
-#' @param object \code{flowJoWorkspace}
-#' @rdname flowJoWorkspace-class
-#' @aliases 
-#' summary,flowJoWorkspace-method
-setMethod("summary",c("flowJoWorkspace"),function(object){
-	show(object);
-})
-
 #' match version string to the support list
 #' 
 #' @param wsversion version string to match
@@ -107,16 +99,18 @@ setMethod("summary",c("flowJoWorkspace"),function(object){
 #' 
 #' Function to parse a flowJo Workspace, generate a \code{GatingHierarchy} or \code{GatingSet} object, and associated flowCore gates. The data are not loaded or acted upon until an explicit call to \code{recompute()} is made on the \code{GatingHierarchy} objects in the \code{GatingSet}.
 #' @param obj A \code{flowJoWorkspace} to be parsed.
-#' @param name \code{numeric} or \code{character}. The name or index of the group of samples to be imported. If \code{NULL}, the groups are printed to the screen and one can be selected interactively. Usually, multiple groups are defined in the flowJo workspace file.
-#' @param execute \code{TRUE|FALSE} a logical specifying if the gates, transformations, and compensation should be immediately calculated after the flowJo workspace have been imported. TRUE by default. 
-#' @param isNcdf \code{TRUE|FALSE} logical specifying if you would like to use netcdf to store the data, or if you would like to keep all the flowFrames in memory. For a small data set, you can safely set this to FALSE, but for larger data, we suggest using netcdf. You will need the netcdf C library installed.
-#' @param subset \code{numeric} vector specifying the subset of samples in a group to import. Or a \code{character} specifying the FCS filenames to be imported.
-#' @param requiregates \code{logical} Should samples that have no gates be included?
-#' @param includeGates \code{logical} Should gates be imported, or just the data with compensation and transformation?
-#' @param path The path to the fcs files that are to be imported. The code will search recursively, so you can point it to a location above the files. This argument is mandatory.
-#' @param sampNloc a \code{character} scalar indicating where to get sampleName(or FCS filename) within xml workspace. It is either from "keyword" or "sampleNode". 
 #' @param ...
 #'      \itemize{
+#'      	\item name \code{numeric} or \code{character}. The name or index of the group of samples to be imported. If \code{NULL}, the groups are printed to the screen and one can be selected interactively. Usually, multiple groups are defined in the flowJo workspace file.
+#'      	\item execute \code{TRUE|FALSE} a logical specifying if the gates, transformations, and compensation should be immediately calculated after the flowJo workspace have been imported. TRUE by default. 
+#'      	\item isNcdf \code{TRUE|FALSE} logical specifying if you would like to use netcdf to store the data, or if you would like to keep all the flowFrames in memory. For a small data set, you can safely set this to FALSE, but for larger data, we suggest using netcdf. You will need the netcdf C library installed.
+#'      	\item subset \code{numeric} vector specifying the subset of samples in a group to import. Or a \code{character} specifying the FCS filenames to be imported.
+#'      	\item requiregates \code{logical} Should samples that have no gates be included?
+#'      	\item includeGates \code{logical} Should gates be imported, or just the data with compensation and transformation?
+#'      	\item path either a \code{character} scalar or \code{data.frame}. When \code{character}, it is a path to the fcs files that are to be imported. The code will search recursively, so you can point it to a location above the files. 
+#'                                                          When it is a \code{data.frame}, it is expected to contain two columns:'sampleID' and 'file', which is used as the mapping between 'sampleID' and FCS file (absolute) path. When such mapping is provided, the file system searching is avoided.
+#'      	\item sampNloc a \code{character} scalar indicating where to get sampleName(or FCS filename) within xml workspace. It is either from "keyword" or "sampleNode". 
+
 #'      	\item compensation=NULL: a \code{matrix} that allow the customized compensation matrix to be used instead of the one specified in flowJo workspace.    
 #'      	\item options=0: a \code{integer} option passed to \code{\link{xmlTreeParse}}
 #'          \item ignore.case a \code{logical} flag indicates whether the colnames(channel names) matching needs to be case sensitive (e.g. compensation, gating..)
@@ -124,7 +118,8 @@ setMethod("summary",c("flowJoWorkspace"),function(object){
 #'          \item extend_to \code{numeric} the value that gate coordinates are extended to. Default is -4000. Usually this value will be automatically detected according to the real data range.
 #'                                  But when the gates needs to be extended without loading the raw data (i.e. \code{execute} is set to FALSE), then this hard-coded value is used.
 #'          \item leaf.bool a \code{logical} whether to compute the leaf boolean gates. Default is TRUE. It helps to speed up parsing by turning it off when the statistics of these leaf boolean gates are not important for analysis. (e.g. COMPASS package will calculate them by itself.)
-#'                                           If needed, they can be calculated by calling \code{recompute} method at later stage.    
+#'                                           If needed, they can be calculated by calling \code{recompute} method at later stage.
+#'          \item additional.keys \code{character} vector:  By default, FCS filename is used to uniquely identify samples. When filename is not sufficient to serve as guid, parser can optionally combine it with other keywords (parsed from FCS header) to make guid (concatenated with "_").    
 #'      	\item ...: Additional arguments to be passed to \link{read.ncdfFlowSet} or \link{read.flowSet}.
 #'      	}
 #' @details
@@ -147,93 +142,101 @@ setMethod("summary",c("flowJoWorkspace"),function(object){
 #' @rdname parseWorkspace
 #' @export 
 #' @importFrom utils menu
-setMethod("parseWorkspace",signature("flowJoWorkspace"),function(obj,name=NULL,execute=TRUE,isNcdf=FALSE,subset=NULL,requiregates=TRUE,includeGates=TRUE, path=obj@path, sampNloc="keyword", ...){
-	
+setMethod("parseWorkspace",signature("flowJoWorkspace"),function(obj, ...){
+      .preprocessor(obj, ...)
+    })
+
+.preprocessor <- function(obj, name = NULL
+                              , subset = NULL
+                              , requiregates = TRUE
+                              , sampNloc = "keyword"
+                              , additional.keys = NULL
+                              , ...)
+{	
     sampNloc <- match.arg(sampNloc, c("keyword", "sampleNode"))	
-			
-	if(isNcdf&!TRUE){
-	stop("isNcdf must be FALSE since you don't have netcdf installed");
-	}
-	
 	
 	x<-obj@doc;
 	
-	wsversion<-xpathApply(x,"/Workspace",function(z)xmlGetAttr(z,"version")[[1]])[[1]];
+	wsversion <- obj@version
     
     wsType <- .getWorkspaceType(wsversion)
     wsNodePath <- flowWorkspace.par.get("nodePath")[[wsType]]
-    filenames <- .getFileNames(x, wsType);
-      
-    s <- .getSamples(x, wsType, sampNloc = sampNloc);
-    g <- .getSampleGroups(x, wsType);
+    
+    #sample info  
+    allSamples <- .getSamples(x, wsType, sampNloc = sampNloc)
+    # group Info
+    g <- .getSampleGroups(x, wsType)
+    # merge two
+	sg <- merge(allSamples, g, by="sampleID");
 	
-	sg<-merge(s,g,by="sampleID");
-	#requiregates - exclude samples where there are no gates? if(requiregates==TRUE)
+    #requiregates - exclude samples where there are no gates? if(requiregates==TRUE)
 	if(requiregates){
-		sg<-sg[sg$pop.counts>0,]
+		sg <- sg[sg$pop.counts>0,]
 	}
-		
+	
+    # filter by group name
 	sg$groupName<-factor(sg$groupName)
 	groups<-levels(sg$groupName)
+    
 	if(is.null(name)){
 	message("Choose which group of samples to import:\n");
-	result<-menu(groups,graphics=FALSE);
+    groupInd <- menu(groups,graphics=FALSE);
 	}else if(is.numeric(name)){
 		if(length(groups)<name)
 			stop("Invalid sample group index.")
-		result<-name
+		groupInd <- name
 	}else if(is.character(name)){
 		if(is.na(match(name,groups)))
 			stop("Invalid sample group name.")
-		result<-match(name,groups)
+          groupInd <- match(name,groups)
 	}
+    group.name <- groups[groupInd]
+    sg <- subset(sg, groupName == group.name)
+#    browser()    
+    #filter by subset (sample name or numeric index)
 	if(is.factor(subset)){
 		subset<-as.character(subset)
 	}
 	if(is.character(subset)){
-	#subset s sg by file name
-          #pull the file names from the keywords
-          filenames<-.getKeyword(obj,"$FIL", wsNodePath[["sample"]])
-          #need to match filename to sampleID
-          sg<-cbind(sg,filename=sapply(sg$sampleID,function(x).getKeywordsBySampleID(obj,x,"$FIL", wsNodePath[["sample"]])))
-          sg<-subset(sg,filename%in%subset)
-	}
-	if(grepl("mac",wsType)){
-		l<-sapply(sg[sg$groupName==groups[result],]$sampleID,function(i){
-			xpathApply(x,paste(wsNodePath[["sample"]], "[@sampleID='",i,"']",sep=""))[[1]]
-			})
-	}else{
-		l<-sapply(sg[sg$groupName==groups[result],]$sampleID,function(i){
-			xpathApply(x,paste(wsNodePath[["sample"]], "/DataSet[@sampleID='",i,"']",sep=""))[[1]]
-			})
-	}
-#	browser()
-	# Allow import of a subset of samples
-	if(!missing(subset)){
-	if(is.numeric(subset)){
-		if(max(subset)<=length(l)&min(subset)>=1)
-		l<-l[subset]
-	}
-	}
-	if(length(l)==0){
-		stop("No samples in this workspace to parse!")
-#		return(new("GatingSet"))
-	}
-	message("Parsing ",length(l)," samples");
-    sampleIDs<-unlist(lapply(l,xmlGetAttr,"sampleID"))
+          sg <- subset(sg, name %in% subset)
+	}else if(is.numeric(subset))
+      sg <- sg[subset, ] 
+
+    #check if there are samples to parse
+    
+    nSample <- nrow(sg)
+    if(nSample == 0)
+      stop("No samples in this workspace to parse!")
+    
+    #use other keywords in addition to name to uniquely identify samples 
+    if(!is.null(additional.keys)){
+      sg[["guid"]] <- as.vector(apply(sg, 1, function(row){
+                  sampleID <- as.numeric(row[["sampleID"]])
+                  sn <- row[["name"]]
+                  kw <- unlist(getKeywords(obj, sampleID)[additional.keys])
+                  paste(c(sn,kw), collapse = "_")
+                }))  
+    }else
+      sg[["guid"]] <- sg[["name"]] 
+    
+    
+    #check duplicated sample keys
+    isDup <- duplicated(sg[["guid"]])
+    if(any(isDup))
+      stop("Duplicated sample names detected within group: ", paste(sg[["guid"]][isDup], collapse = " "), "\n Please check if the appropriate group is selected.")
+
+    
+	message("Parsing ", nSample," samples");
 	.parseWorkspace(xmlFileName=file.path(obj@path,obj@file)
-                    ,sampleIDs
-                    ,execute=execute
-                    ,isNcdf=isNcdf
-                    ,includeGates=includeGates
-                    ,path=path
+                    , samples = sg[,c("name", "sampleID", "guid")]
                     ,xmlParserOption = obj@options
                     ,wsType=wsType
                     ,ws = obj
                     , sampNloc = sampNloc
+                    , additional.keys = additional.keys
                     ,...)
 		
-})
+}
 
 
 getFileNames <- function(ws){
@@ -241,7 +244,7 @@ getFileNames <- function(ws){
     stop("ws should be a flowJoWorkspace")
   }else{
     x <- ws@doc
-    wsversion <- xpathApply(x,"/Workspace",function(z)xmlGetAttr(z,"version")[[1]])[[1]]
+    wsversion <- ws@version
     wsType <- .getWorkspaceType(wsversion)
     .getFileNames(x, wsType)
   }
@@ -285,28 +288,18 @@ mkformula<-function(dims,isChar=FALSE){
 	return(form)
 }
 
-#setAs("GatingSet","list",function(from){l<-vector("list",length(from));
-#for (i in seq_along(l)){
-#l[[i]]<-from[[i]]
-#}
-#l})
 
 
-.getKeywordsBySampleID <- function(obj,sid,kw=NULL, samplePath = "/Workspace/SampleList/Sample"){
-  kws<-xpathApply(obj@doc,sprintf(paste0(samplePath,"[@sampleID='%s']/Keywords/Keyword"),sid),xmlAttrs)
-  if(!is.null(kw)){
-    unlist(lapply(kws,function(x)x["value"][x["name"]%in%kw]))
-  }else{
-    kws
-  }
-}
+
 
 #' Get Keywords
 #' 
 #' Retrieve keywords associated with a workspace
 #' 
 #' @param obj A \code{flowJoWorkspace}
-#' @param y c\code{character} specifying the sample names
+#' @param y c\code{character} or \code{numeric} specifying the sample name or sample ID
+#' @param ... other arguments
+#'      sampNloc a \code{character} the location where the sample name is specified. See \code{parseWorkspace} for more details.
 #' 
 #' @details
 #'   Retrieve a list of keywords from a \code{flowJoWorkspace}  
@@ -318,33 +311,78 @@ mkformula<-function(dims,isChar=FALSE){
 #'   ws <- openWorkspace(wsfile);
 #'   
 #'   getSamples(ws)
-#'   getKeywords(ws,"CytoTrol_CytoTrol_1.fcs")
-#' 
+#'   res <- try(getKeywords(ws,"CytoTrol_CytoTrol_1.fcs"), silent = TRUE)
+#'   print(res[[1]])
+#'   getKeywords(ws, 1)
 #' @aliases getKeywords
 #' @rdname getKeywords
 #' @export 
-setMethod("getKeywords",c("flowJoWorkspace","character"),function(obj,y){
+setMethod("getKeywords",c("flowJoWorkspace","character"),function(obj,y, ...){
+      if(length(y) > 1)
+        stop("getKeywords can only work with one sample at a time!")
       x <- obj@doc
-      wsversion <- xpathApply(x,"/Workspace",function(z)xmlGetAttr(z,"version")[[1]])[[1]]
+      wsversion <- obj@version
       wsType <- .getWorkspaceType(wsversion)
       wsNodePath <- flowWorkspace.par.get("nodePath")[[wsType]]
-      .getKeywords(obj@doc,y, wsNodePath[["sample"]])
+      .getKeywordsBySampleName(obj@doc,y, wsNodePath[["sample"]], ...)
 })
+#' @rdname getKeywords
+#' @export 
+setMethod("getKeywords",c("flowJoWorkspace","numeric"),function(obj,y, ...){
+      if(length(y) > 1)
+        stop("getKeywords can only work with one sample at a time!")
+      x <- obj@doc
+      wsversion <- obj@version
+      wsType <- .getWorkspaceType(wsversion)
+      wsNodePath <- flowWorkspace.par.get("nodePath")[[wsType]]
+      .getKeywordsBySampleID(obj@doc,y, wsNodePath[["sampleID"]],...)
+    })
 
-.getKeywords <- function(doc,y, samplePath = "/Workspace/SampleList/Sample"){
-  #match sample name to the keywords  
-  w <- which(xpathApply(doc, file.path(samplePath, "Keywords/Keyword[@name='$FIL']"),function(x)xmlGetAttr(x,"value"))%in%y)
+.getKeywordsBySampleID <- function(obj, sid, sampleIDPath = "/Workspace/SampleList/Sample"){
+  
+  xpath <- sprintf(paste0(sampleIDPath,"[@sampleID='%s']"),sid)
+  
+  if(basename(sampleIDPath)!= "Sample")
+    xpath <- file.path(xpath, "..")
+  
+  sampleNode <- xpathApply(obj, xpath)
+  if(length(sampleNode) == 0)
+    stop("sampleID ", sid, " not found!")
+  
+  kw <- xpathApply(sampleNode[[1]], "Keywords/Keyword", function(i){
+                                      attr <- xmlAttrs(i)
+                                      attrValue <- attr[["value"]]
+                                      names(attrValue) <- attr[["name"]]
+                                      trimWhiteSpace(attrValue)
+                                    })
+  as.list(unlist(kw))
+  
+}
+.getKeywordsBySampleName <- function(doc, y, samplePath = "/Workspace/SampleList/Sample", sampNloc = "keyword"){
+  sampNloc <- match.arg(sampNloc, c("keyword", "sampleNode"))  
+  
+  if(sampNloc == "keyword"){
+    w <- which(xpathApply(doc, file.path(samplePath, "Keywords/Keyword[@name='$FIL']"),function(x)xmlGetAttr(x,"value"))%in%y)
+    if(length(w)==0)
+      warning("Sample name ", y," not found in Keywords of workspace")
+  }else{
+    w <- which(xpathApply(doc, file.path(samplePath,"SampleNode") ,function(x)xmlGetAttr(x,"name"))%in%y)
+    if(length(w)==0)
+      warning("Sample name ", y," not found in SampleNode of workspace")
+  }
+  
   if(length(w)==0){
-    warning("Sample ",y," not found in Keywords of workspace");
     ##Use the DataSet tag to locate the sample
     w <- which(xpathApply(doc, file.path(samplePath,"DataSet") ,function(x)xmlGetAttr(x,"uri"))%in%y)
-    #last resort to match to the SampleNode name attribute
     if(length(w)==0)
-      w <- which(xpathApply(doc, file.path(samplePath,"SampleNode") ,function(x)xmlGetAttr(x,"name"))%in%y)
+      stop("failed to locate Sample ",y," within workspace")      
   }
+  
+  if(length(w) > 1)
+    stop("Character '", y, "' can't uniquely identify sample within the workspace!Try to set 'y' to a numeric sampleID instead.")
   l <- xpathApply(doc,paste(samplePath,"[",w,"]/Keywords/node()",sep=""),xmlAttrs)
-  names(l)<-lapply(l,function(x)x[["name"]])
-  l<-lapply(l,function(x)x[["value"]])
+  names(l) <- lapply(l,function(x)x[["name"]])
+  l <- lapply(l,function(x)x[["value"]])
   return(l)
 }
 
@@ -387,7 +425,7 @@ getFJWSubsetIndices<-function(ws,key=NULL,value=NULL,group,requiregates=TRUE){
 		stop("ws must be a flowJoWorkspace object")
 	}
     x <- ws@doc
-    wsversion <- xpathApply(x,"/Workspace",function(z)xmlGetAttr(z,"version")[[1]])[[1]]
+    wsversion <- ws@version
     wsType <- .getWorkspaceType(wsversion)
     wsNodePath <- flowWorkspace.par.get("nodePath")[[wsType]]
     
@@ -444,9 +482,10 @@ trimWhiteSpace<-function (x)
 #' @export  
 setMethod("getSamples","flowJoWorkspace",function(x, sampNloc="keyword"){
       sampNloc <- match.arg(sampNloc, c("keyword", "sampleNode"))
-      x <- x@doc
-      wsversion <- xpathApply(x,"/Workspace",function(z)xmlGetAttr(z,"version")[[1]])[[1]]
+      
+      wsversion <- x@version
       wsType <- .getWorkspaceType(wsversion)
+      x <- x@doc
       .getSamples(x, wsType = wsType, sampNloc = sampNloc)
 })
 
@@ -468,8 +507,8 @@ setMethod("getSamples","flowJoWorkspace",function(x, sampNloc="keyword"){
 #' @rdname getSampleGroups
 #' @export 
 setMethod("getSampleGroups","flowJoWorkspace",function(x){
+            wsversion <- x@version      
             x <- x@doc
-            wsversion <- xpathApply(x,"/Workspace",function(z)xmlGetAttr(z,"version")[[1]])[[1]]
             wsType <- .getWorkspaceType(wsversion)
 			.getSampleGroups(x, wsType = wsType)
 		})

@@ -62,8 +62,8 @@ test_that("v 10.0.7 - vX 20.0 (cytof no compensation)",{
       ws <- openWorkspace(wsFile)
       
       gs <- parseWorkspace(ws, name = 1, path = file.path(path), execute = FALSE)
-      expect_is(gs, "list")
-      expect_is(gs[[1]], "GatingSet")
+      
+      expect_is(gs, "GatingSet")
 #      gh <- gs[[1]]
 #      expectCounts <- fread(file.path(thisPath, "expectCounts.csv"))      
 #      thisCounts <- getPopStats(gh)[, list(flowJo.count,flowCore.count, node)]
@@ -222,8 +222,8 @@ test_that("v 9.7.4 - mac 3.0",{
       gh <- gs[[1]]
       expectCounts <- fread(file.path(thisPath, "expectCounts.csv"))      
       thisCounts <- getPopStats(gh, path = "full")[, list(flowJo.count,flowCore.count, node)]
-      
-      expect_equal(thisCounts, expectCounts)
+      expectCounts[flowJo.count ==0, flowJo.count := -1]#fix the legacy counts
+      expect_equivalent(thisCounts, expectCounts)
     })
 
 test_that("v 9.7.5 - mac 3.0 (no compensation and using calibrationIndex)",{
@@ -238,8 +238,8 @@ test_that("v 9.7.5 - mac 3.0 (no compensation and using calibrationIndex)",{
       gh <- gs[[1]]
       expectCounts <- fread(file.path(thisPath, "expectCounts.csv"))      
       thisCounts <- getPopStats(gh)[, list(flowJo.count,flowCore.count, node)]
-      
-      expect_equal(thisCounts, expectCounts)
+      expectCounts[flowJo.count ==0, flowJo.count := -1] #fix the legacy counts
+      expect_equivalent(thisCounts, expectCounts)
     })
 
 test_that("v 9.7.5 - mac 3.0 (boolGate that refers to the non-sibling nodes)",{
