@@ -46,6 +46,18 @@ setMethod("openWorkspace",signature=signature(file="character"),definition= func
 	return(x);
 })
 
+trimws <- function(x,left=TRUE,right=TRUE){
+  res <- x
+  old.locale <- Sys.getlocale("LC_CTYPE")
+  Sys.setlocale("LC_CTYPE","C")
+  if(left)
+    res <- sub('^\\s+', '',res)
+  if(right)
+    res <- sub('\\s+$', '',res)
+  Sys.setlocale("LC_CTYPE",old.locale)
+  res
+}
+
 #setAs("list", "GatingSet", function(from, to ){
 #	if(!all(unlist(lapply(from,function(y)class(y)=="GatingHierarchy"),use.names=FALSE))){
 #		stop("Can't coerce this list to class GatingSet");
